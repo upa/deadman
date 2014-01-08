@@ -30,13 +30,13 @@ Net::PingがICMPを吐くためにroot privilegeが必要なのでsudoしてく�
 これだけです。そうするとこんな感じになります。
 
 
-                                     Dead Man
-    local.host (x.x.x.x)                                    [ver 2.010.12]
-    Keytype: [a] Display addr, [i] ping interval, [t] ping timeout, [q]uit
- 
-    HOSTNAME    ADDRESS                  LOSS%   RTT  AVG  SNT  RESULT
-    Google_DNS  8.8.8.8           UP        0%    34   35    3  ...
-  > kame6       2001:200:dff:ff   UP        0%     1    2    3  ..
+	                                     Dead Man
+	    local.host (x.x.x.x)                                    [ver 2.010.12]
+	    Keytype: [a] Display addr, [i] ping interval, [t] ping timeout, [q]uit
+	 
+	    HOSTNAME    ADDRESS                  LOSS%   RTT  AVG  SNT  RESULT
+	    Google_DNS  8.8.8.8           UP        0%    34   35    3  ...
+	  > kame6       2001:200:dff:ff   UP        0%     1    2    3  ..
  
 
 
