@@ -14,9 +14,9 @@ How to use
 
 まずconfigを書きます。configの中身は下記のような感じ。
 
- % cat deadman.conf
- Google_DNS	=	8.8.8.8
- kame6		=	2001:200:dff:fff1:216:3eff:feb1:44d7
+	 % cat deadman.conf
+	 Google_DNS	=	8.8.8.8
+	 kame6		=	2001:200:dff:fff1:216:3eff:feb1:44d7
 
 
 1行ごとに、空白を含まない文字列(画面に表示されるときの名前)に対して監視
