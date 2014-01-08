@@ -1,0 +1,502 @@
+#!/usr/bin/perl
+#
+# Copyright INTEROP TOKYO SHOWNET TEAM
+#    upa@haeena.net
+#
+#	ToDo	
+#         Create [r] Refresh Display
+#         Port Check
+#
+# Change Log
+#   2011/09/15	  Added colored status (by yummy)
+#   2010/11/28    Add Growl Notify Options [-g] in Internet of Things 2010
+#   
+#
+
+use lib './lib';
+
+use strict;
+use Curses;
+use Switch;
+use threads;
+use threads::shared;
+use Time::HiRes;
+use Net::Ping;
+use Net::Ping6;
+use Getopt::Std;
+
+
+############# Global Variables #############
+
+my %args = ();
+
+my $ping_host_interval = 0.04;
+my $ping_size = 32;
+my $ping_result_nums = 15;
+
+my $title_str  = "Dead Man";
+my $ver_str    = "[ver 2.010.12]";
+my $result_str = "  LOSS\%   RTT  AVG  SNT  RESULT";
+my $result_fmt = "  %4d%%   %3d  %3d %4d  %s";
+my $arrow      = " >"; 
+
+my $growl             = "/usr/local/bin/growlnotify";
+my $growl_title       = "Dead Man";
+my $growl_dead_cout   = 3; 
+my $growl_missed_time = 1;
+
+my $usage = 
+qq(
+Daed Man usage
+\t -c : -c [CONFIG FILE]
+\t -g : Enable Growl Notify\n
+);
+
+# Threads Shared Objects
+
+my $ping_timeout  : shared;
+my $ping_interval : shared;
+$ping_timeout  = 1;
+$ping_interval = 1;
+
+my $growl_enable : shared;
+
+my $indicate_addr : shared;
+my $quit_threads  : shared;
+$indicate_addr = 1;
+$quit_threads  = 0;
+
+my $cycle_interval : shared;
+
+my @name : shared;       # Target Hostname
+my @addr : shared;       # Target Address
+my @inet : shared;       # FAMILY INET (inet or inet6)
+my @rslt : shared;       # Result as Line
+my @loss : shared;       # Ping Loss Rate
+my @rtt  : shared;       # Ping Last RTT
+my @avg  : shared;       # RTT Average
+my @min  : shared;       # Minimum RTT
+my @max  : shared;       # Maximum RTT
+my @sum  : shared;       # RTT Sum
+
+my $sent : shared;       # sent Ping nums
+
+my $keytype_str : shared;
+$keytype_str = 
+"Keytype: [a] Display addr, [i] ping interval, [t] ping timeout, [q]uit";
+
+# Screen Position Values
+my $start_host : shared;
+my $start_addr : shared;
+my $start_rslt : shared;
+my $cursol_x   : shared;
+my $cursol_y   : shared;
+$cursol_x = 0;
+$cursol_y = 0;
+
+
+my $localaddr;
+my $hostname = `hostname`;
+chomp ($hostname);
+my @localinfo = gethostbyname ($hostname);
+shift (@localinfo);
+shift (@localinfo);
+shift (@localinfo);
+shift (@localinfo);
+foreach my $binary_addr (@localinfo) { 
+    $localaddr = sprintf ("%s.%s.%s.%s", unpack ('CCCC', $binary_addr));;
+}
+
+
+############# Initialize #############
+
+getopts "c:g", \%args or die $usage;
+if ($args{'c'}) {
+    &config_parser ($args{'c'});
+}
+if ($args{'g'}) {
+    $growl_enable = 1; 
+}
+
+
+my $num = 0;
+foreach (@addr) {
+    $inet[$num] = ($_ =~ /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/) ?
+	"inet" : "inet6";
+    $num++;
+}
+
+my $ping  = Net::Ping->new ("icmp", $ping_timeout, $ping_size);
+my $ping6 = Net::Ping6->new ('udp', $ping_timeout, $ping_size); 
+
+initscr;
+cbreak;
+noecho;
+
+my $win = new Curses;
+
+start_color;
+use_default_colors; 
+init_pair (1, COLOR_WHITE, COLOR_RED);
+init_pair (2, COLOR_WHITE, COLOR_GREEN);
+
+&init_screen_position ();
+my $num = 0;
+$sent = 1;
+foreach (@name) {
+    &print_header ($win);
+    &print_ping_result  ($win, $num);
+    $num++;
+}
+$sent = 0;
+
+# Init Threads, process_keys and main_routine
+my $thread_process_keys = threads->new(\&process_keys, $win);
+my $thread_main_routine = threads->new(\&main_routine);
+$thread_process_keys->join;
+$thread_main_routine->join;
+
+$win->move (0,0);
+$win->refresh;
+
+sleep (2);
+
+$win->clear;
+$win->endwin;
+delwin;
+exit;
+
+
+############# Main Routine #############
+
+sub main_routine {
+    while (1) {
+	$sent++;
+	&init_screen_position ();
+	&print_header ($win);
+	my $num = 0;
+	foreach (@name) {
+	    $cycle_interval = 0;
+	    $win->addstr (5 + $num, 0, $arrow);
+	    $win->move($cursol_y, $cursol_x);
+	    $win->refresh;
+	    &ping_routine ($ping, $num);
+	    &print_ping_result ($win, $num);
+	    select undef, undef, undef, $ping_host_interval;
+	    $win->addstr (5 + $num, 0, "   ");
+	    $win->refresh;
+	    $num++;
+	    $cycle_interval += $rtt[$num];
+	}
+	$win->addstr (5 + $num - 1, 0, $arrow);
+	$win->move (5 + $num, 0);
+	$win->clrtoeol;
+	$win->move($cursol_y, $cursol_x);
+	$win->refresh;
+	my $interval = $ping_interval - $cycle_interval;
+	sleep (($interval > 0) ? $interval : 0 );
+	$win->addstr (5 + $num - 1, 0, "   ");
+	$win->refresh;
+	if ($quit_threads != 0) {
+	    last;
+	}
+    }
+    return 0;
+}
+
+
+############# Process Keytype Routine #############
+
+sub process_keys {
+
+    my $win = shift;
+    
+    while (1) {
+	my $c = $win->getch();
+	switch ($c) {
+	    case 'a'
+	    {
+		($indicate_addr > 0) ? &erase_addr($win) : &print_addr($win);
+		$indicate_addr = ($indicate_addr > 0) ? 0 : 1; 
+	    };
+	    case 'i' {&keytype_ping_interval($win); }
+	    case 't' {&keytype_ping_timeout($win); }
+	    case 'r' {&keytype_refresh_status($win); }
+	    case 'q' {$quit_threads = 1; last; }
+	}
+    }
+    return 0;
+}
+
+
+
+############# Sub Routine #############
+
+sub keytype_refresh_status {
+    my $win = shift;
+    
+    $sent = 1;
+    my $num = @name;
+    for (my $n = 0; $n < $num - 1; $n++) {
+	$rslt[$n] = "";
+	$loss[$n] = 0;
+	$rtt[$n] = 0;
+	$avg[$n] = 0;
+	$min[$n] = 0;
+	$max[$n] = 0;
+	$sum[$n] = 0;
+	&print_header ($win);
+	&print_ping_result ($win, $num);
+	$win->refresh;
+    }
+}
+
+sub keytype_ping_interval {
+    my $win = shift;
+    my $ch;
+    my $interval = "";
+    my $tmp = $keytype_str;
+    $keytype_str = "keytpye: Set Ping Interval = ";
+    &print_header($win);
+    $cursol_y = 2;
+    $cursol_x = length ($keytype_str) + 3;
+    $win->move($cursol_y, $cursol_x); 
+    $win->refresh;
+    $interval = "";
+    while (1) {
+	$ch = $win->getch();				    
+	if ($ch !~ m/[0-9]|\./) { last; }
+	$interval .= $ch;
+	$keytype_str .= $ch;
+	$cursol_x++;
+	$win->move($cursol_y, $cursol_x);
+	&print_header ($win);
+    }
+    $ping_interval = ($interval =~ /^[0-9]/ && $interval !~ /\..*\./) 
+	? $interval : $ping_interval;
+    $cursol_x = 0;
+    $cursol_y = 0;
+    $keytype_str = $tmp;
+    &print_header($win);
+}
+
+sub keytype_ping_timeout {
+    my $win = shift;
+    my $ch;
+    my $timeout;
+    my $tmp = $keytype_str;
+    $keytype_str = "keytpye: Set Ping Timeout = ";
+    &print_header($win);
+    $cursol_y = 2;
+    $cursol_x = length ($keytype_str) + 3;
+    $win->move($cursol_y, $cursol_x); 
+    $win->refresh;
+    while (1) {
+	$ch = $win->getch();				    
+	if ($ch !~ m/[0-9]|\./) { last; }
+	$timeout .= $ch;
+	$keytype_str .= $ch;
+	$cursol_x++;
+	$win->move($cursol_y, $cursol_x);
+	&print_header ($win);
+    }
+    $ping_timeout = $timeout;
+    $cursol_x = 0;
+    $cursol_y = 0;
+    $keytype_str = $tmp;
+    &print_header($win);
+}
+
+
+sub print_addr {
+
+    my $win = shift;
+
+    $win->attron (A_BOLD);
+    $win->addnstr (4, $start_addr, " ADDRESS", $start_rslt - $start_addr);
+    $win->attroff (A_BOLD);
+    
+    my $num = 0;
+    foreach (@addr) {
+	$win->addnstr (5 + $num, $start_addr, 
+		      " $addr[$num]", $start_rslt - $start_addr);
+	$num++;
+    }
+    $win->move($cursol_y, $cursol_x);
+    $win->refresh;
+}
+
+
+sub erase_addr {
+
+    my $win = shift;
+
+    my $num;
+    my $erase_line;
+    for ($num = 0; $num < ($start_rslt - $start_addr); $num++) {
+	$erase_line .= " ";
+    }
+    $win->addstr (4, $start_addr, $erase_line);
+
+    $num = 0;
+    foreach (@addr) {
+	$win->addstr (5 + $num, $start_addr, $erase_line);
+	$num++;
+    }
+    $win->move($cursol_y, $cursol_x);
+    $win->refresh;
+}
+
+sub print_header {
+
+    my $win = shift;
+    my $x = getmaxx;
+    my $y = getmaxy;
+    
+    $win->attron (A_BOLD);
+    $win->move(0, 0);
+    $win->clrtoeol;
+    $win->addstr (0, int (($x - length ($title_str))/2) , $title_str);
+
+    $win->move (1, 0);
+    $win->clrtoeol;
+    $win->attroff (A_BOLD);
+    $win->addstr (1, 3, "$hostname ($localaddr)");
+    $win->attron (A_BOLD);
+    $win->addstr (1, $x - length ($ver_str) - 2, $ver_str);
+
+    $win->move (2, 0);
+    $win->clrtoeol;
+    $win->addstr (2, 3, $keytype_str);
+
+    $win->move (3, 0);
+    $win->clrtoeol;
+
+    $win->move(4, 0);
+    $win->clrtoeol;
+    $win->addstr (4, $start_host, " HOSTNAME");
+    if ($indicate_addr) { $win->addstr (4, $start_addr, " ADDRESS"); }
+    $win->addstr (4, $start_rslt, $result_str);
+    $win->move($cursol_y, $cursol_x);
+    $win->refresh;
+    $win->attroff (A_BOLD);
+}
+
+sub print_ping_result {
+    
+    my $win = shift;
+    my $num = shift;
+
+    my $x = getmaxx;
+    my $y = getmaxy;
+    
+    if ($rslt[$num] =~ /^!/) {
+	$win->attron (A_BOLD);
+	$win->attron (A_BLINK);
+    }
+    if ($growl_enable == 1 && $rslt[$num] =~ /^!\.{$growl_dead_cout,}/) {
+	my $growl_message = $name[$num] . " is " . "down!!";
+	system $growl, '-t', $growl_title, '-m', $growl_message,  
+    }
+
+    $win->move(5 + $num, $start_host);
+    $win->clrtoeol;
+    $win->addstr (5 + $num, $start_host, " $name[$num]");
+    if ($indicate_addr) { $win->addstr (5 + $num, $start_addr, " $addr[$num]");}
+    if ($rslt[$num] =~ /^!/) {
+	$win->attron (COLOR_PAIR(1));
+        $win->addstr (5 + $num, $start_rslt - 8, "  DOWN  ");
+        $win->attroff (COLOR_PAIR(1));
+    } else { 
+        $win->attron (COLOR_PAIR(2));
+        $win->addstr (5 + $num, $start_rslt - 8, "   UP   ");
+        $win->attroff (COLOR_PAIR(2));
+    }
+    $win->addstr (5 + $num, $start_rslt,
+                  sprintf ($result_fmt,
+                           $loss[$num]/$sent * 100, $rtt[$num], $avg[$num],
+                           $sent, $rslt[$num]));
+    $win->move($cursol_y, $cursol_x);
+
+    if ($rslt[$num] =~ /^!/) {
+	$win->attroff (A_BOLD);
+	$win->attroff (A_BLINK);
+    }
+    $win->refresh;
+
+}
+
+
+sub init_screen_position {
+   $start_host = 2;
+    my $longest_name = "HOSTNAME";
+    foreach (@name) {
+	if (length ($longest_name) < length ($_)) {
+	    $longest_name = $_;
+	}
+    }
+   $start_addr = length ($longest_name) + $start_host + 2;
+   $start_rslt = $win->getmaxx - $ping_result_nums 
+       - length ($result_str) + 4;
+}
+
+
+sub ping_routine {
+    
+    my $ping = shift;
+    my $num = shift;
+
+    my $before = Time::HiRes::time ();
+    my $p_rslt = ($inet[$num] eq "inet") ?
+	$ping->ping ($addr[$num], $ping_timeout) : 
+	$ping6->ping ($addr[$num], $ping_timeout);
+    $rtt[$num] = (Time::HiRes::time () - $before) * 1000;
+
+    if ($min[$num] == 0) {$min[$num] = $rtt[$num]; }
+    $min[$num] = ($min[$num] > $rtt[$num]) ? $rtt[$num] : $min[$num];
+    $max[$num] = ($max[$num] < $rtt[$num]) ? $rtt[$num] : $max[$num];
+
+    $rslt[$num] = ($p_rslt) ? "." . $rslt[$num] : "!" . $rslt[$num];
+
+    if ($p_rslt) { $sum[$num] += $rtt[$num]; $avg[$num] = $sum[$num] / $sent }
+    else { $loss[$num]++; $rtt[$num] = 0}
+
+    if (length ($rslt[$num]) > $ping_result_nums) {
+	chop $rslt[$num];
+    }
+}
+
+
+
+sub config_parser {
+
+    my $config = shift;
+    open (CONF, "<$config") or die "Can't Open Config File $config";
+    
+    foreach (<CONF>) {
+	$_ =~ s/\t| //g;
+	if ($_ !~ /^\#|^(\r\n|\n\r|\r|\n)/) {
+	    $_ =~ s/\#.*$//;
+	    chomp ($_);
+	    my @split = split (/=/, $_);
+	    push (@name, $split[0]);
+	    push (@addr, $split[1]);
+	}
+    }
+    close CONF;
+}
+
+
+sub argv_parser {
+    
+    my @argv = @ARGV;
+    shift (@argv);
+    foreach (@argv) {
+	    my @split = split (/=/, $_);
+	    $split[1] =~ s/(\r\n|\n\r|\r|\n)$//;
+	    push (@name, $split[0]); 
+	    push (@addr, $split[1]); 
+    }
+}
+
+
