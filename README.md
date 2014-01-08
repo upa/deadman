@@ -43,7 +43,7 @@ Net::PingがICMPを吐くためにroot privilegeが必要なのでsudoしてく�
 
 Copyright
 =========
-INTEROP TOKYO SHOWNET TEAM all rights reserved.
+deadman is INTEROP TOKYO SHOWNET TEAM all rights reserved.
 
 Contact
 =======
