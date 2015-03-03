@@ -1,0 +1,460 @@
+#!/usr/bin/env python
+
+import re
+import os
+import sys
+import time
+import commands
+import socket
+import curses
+import thread
+
+
+# Configuration Values
+TITLE_PROGNAME = "PydMan (Python Dead Man)  "
+TITLE_HOSTINFO = "From: %s (%s)" % (
+    commands.getoutput ("hostname") ,
+    socket.gethostbyname (commands.getoutput ("hostname")))
+TITLE_VERSION = "[2015.3.3]"
+TITLE_KEYTYPE = "Keys: (r)efresh"
+TITLE_VERTIC_LENGTH = 4
+
+ARROW = ">"
+PING_INTERVAL = 0.1
+PING_ALLTARGET_INTERVAL = 1
+RESULT_STR_LENGTH   = 10
+MAX_HOSTNAME_LENGTH = 32
+MAX_ADDRESS_LENGTH  = 32
+
+# Static Values
+FRONT_SPACE_LENGTH = len (" %s " % (ARROW))
+REAR_SPACE_LENGTH  = 3  # static space length of rear space
+ADDRESS_START_POINT = 0  # is set below
+UPSTR   = "   UP   "
+DOWNSTR = "  DOWN  "
+UPSTR_COLOR_PAIR   = 1
+DOWNSTR_COLOR_PAIR = 2
+
+
+OSNAME = commands.getoutput ("uname -s")
+
+
+class PingTarget :
+
+    def __init__ (self, name, address, ping) :
+
+        self.name = name
+        self.addr = address
+        self.state = False
+        self.loss = 0
+        self.rtt = 0 # current RTT
+        self.tot = 0 # total of all RTT
+        self.avg = 0 # average of all RTT
+        self.snt = 0 # number of sent ping
+        self.result = ""
+
+        self.ping = ping (self.addr)
+
+        return
+
+    def send (self) :
+
+        res = self.ping.send ()
+
+        self.snt += 1
+
+        if res >= 0 :
+            # Ping Success
+            self.state = True
+            self.rtt = res
+            self.tot += res
+            self.avg = (self.tot) / self.snt
+            self.result = "." + self.result
+
+        elif res < 0 :
+            # Ping Failed
+            self.state = False
+            self.result = "!" + self.result
+
+        self.result = self.result[0:RESULT_STR_LENGTH]
+
+        return
+
+    def refresh (self) :
+        self.state = None
+        self.loss = 0
+        self.rtt = 0
+        self.tot = 0
+        self.avg = 0
+        self.snt = 0
+        self.result = ""
+
+        return
+
+        
+class PingDarwin :
+
+    def __init__ (self, addr, timeout = 1) :
+
+        self.addr = addr
+
+        ipver = whichipversion (self.addr)
+        if ipver == 4 :
+            self.ipversion = 4
+        elif ipver == 6 :
+            self.ipversion = 6
+        else :
+            self.ipversion = -1
+            print "invalid IP address \"%s\"" % self.addr
+            raise
+        return
+
+    def send (self) :
+        if self.ipversion == 4 :
+            return self.sendping4 ()
+        if self.ipversion == 6 :
+            return self.sendping6 ()
+        raise
+
+    def sendping4 (self) :
+        pingcmd = "ping -t 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+    def sendping6 (self) :
+        pingcmd = "ping6 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+class PingLinux :
+
+    def __init__ (self, addr, timeout = 1) :
+
+        self.addr = addr
+
+        ipver = whichipversion (self.addr)
+        if ipver == 4 :
+            self.ipversion = 4
+        elif ipver == 6 :
+            self.ipversion = 6
+        else :
+            self.ipversion = -1
+            print "invalid IP address \"%s\"" % self.addr
+            raise
+        return
+
+    def send (self) :
+        if self.ipversion == 4 :
+            return self.sendping4 ()
+        if self.ipversion == 6 :
+            return self.sendping6 ()
+        raise
+
+    def sendping4 (self) :
+        pingcmd = "ping -W 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+    def sendping6 (self) :
+        pingcmd = "ping6 -W 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+    
+class CursesCtrl () :
+
+    def __init__ (self, stdscr) :
+        self.stdscr = stdscr
+        return
+
+
+    def key_thread (self, *args) :
+
+        while True :
+            ch = self.stdscr.getch ()
+
+            if ch == ord ('r') :
+                num = 0
+                for target in args :
+                    num += 1
+                    target.refresh ()
+                    self.erase_pingtarget (num)
+                    self.print_pingtarget (target, num)
+                    
+                
+            
+    def update_info (self) :
+        self.y, self.x = self.stdscr.getmaxyx ()
+        return
+
+    def refresh (self) :
+        self.stdscr.refresh ()
+        return
+
+    def print_title (self) :
+        self.update_info ()
+
+        # Print Program name on center of top line
+        spacelen = int ((self.x - len (TITLE_PROGNAME)) / 2)
+        self.stdscr.addstr (0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
+
+        # Print hostname and version number
+        self.stdscr.addstr (1, FRONT_SPACE_LENGTH, TITLE_HOSTINFO,
+                            curses.A_BOLD)
+        spacelen = self.x - (REAR_SPACE_LENGTH + len (TITLE_VERSION))
+        self.stdscr.addstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
+        self.stdscr.addstr (2, FRONT_SPACE_LENGTH,
+                            TITLE_KEYTYPE)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_title (self) :
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.stdscr.addstr (0, 0, space)
+        self.stdscr.addstr (1, 0, space)
+        self.stdscr.addstr (2, 0, space)
+        return
+
+    def print_reference (self) :
+        hostname_str = "HOSTNAME"
+        address_str = "ADDRESS"
+        values_str = "LOSS  RTT  AVG  SNT  RESULT"
+
+        # Print reference hostname and address
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, FRONT_SPACE_LENGTH,
+                            hostname_str, curses.A_BOLD)
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, ADDRESS_START_POINT,
+                            address_str, curses.A_BOLD)
+
+        # Print references of values
+        ref_start = self.x - (len (values_str) +
+                              (RESULT_STR_LENGTH - len ("RESULT")) +
+                              REAR_SPACE_LENGTH)
+
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, ref_start,
+                            values_str, curses.A_BOLD)
+
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+    
+    def erase_reference (self) :
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, 0, space)
+        return
+
+    def print_pingtarget (self, target, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        # Print Hostname and Address
+        self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
+                            target.name[0:MAX_HOSTNAME_LENGTH])
+        self.stdscr.addstr (linenum, ADDRESS_START_POINT,
+                            target.addr[0:MAX_ADDRESS_LENGTH])
+
+        # Print values
+        values_str = "LOSS  RTT  AVG  SNT  RESULT"
+        ref_start = self.x - (len (values_str) +
+                              (RESULT_STR_LENGTH - len ("RESULT")) +
+                              REAR_SPACE_LENGTH)
+
+        values_str = "%3d%%%5d%5d%5d  %s" % (target.loss,
+                                             target.rtt,
+                                             target.avg,
+                                             target.snt,
+                                             target.result)
+
+        self.stdscr.addstr (linenum, ref_start, values_str)
+
+        # Print Up/Down State
+        if target.state == True :
+            self.stdscr.addstr (linenum, ref_start - (len (UPSTR) + 2),
+                                UPSTR,
+                                curses.color_pair (UPSTR_COLOR_PAIR))
+        elif target.state == False :
+            self.stdscr.addstr (linenum, ref_start - (len (DOWNSTR) + 2),
+                                DOWNSTR,
+                                curses.color_pair (DOWNSTR_COLOR_PAIR))
+
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def print_arrow (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        self.stdscr.addstr (linenum, 1, ARROW)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_arrow (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        space_str = ""
+        for x in range (len (ARROW)) :
+            space_str += " "
+
+        self.stdscr.addstr (linenum, 1, space_str)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_pingtarget (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.stdscr.addstr (linenum, 2, space)
+        return
+
+
+class Pydman :
+
+    def __init__ (self, stdscr, configfile) :
+
+        self.targets = []
+        self.curs = CursesCtrl (stdscr)
+        self.targetlist = self.gettargetlist (configfile)
+
+        for name, addr in self.targetlist :
+            self.targets.append (PingTarget (name, addr, PING_CRADLE[OSNAME]))
+        
+        global ADDRESS_START_POINT
+        for name, addr in self.targetlist :
+            if len (name) > ADDRESS_START_POINT :
+                ADDRESS_START_POINT = len (name)
+        ADDRESS_START_POINT += FRONT_SPACE_LENGTH + 3
+        self.curs.print_title ()
+
+        return
+
+
+    def main (self) :
+
+        thread.start_new_thread (self.curs.key_thread, tuple (self.targets))
+
+        while True :
+
+            self.curs.update_info ()
+            self.curs.erase_title ()
+            self.curs.print_title ()
+            self.curs.erase_reference ()
+            self.curs.print_reference ()
+
+            num = 0
+            for target in self.targets :
+                num += 1
+
+                self.curs.print_arrow (num)
+                target.send ()
+                self.curs.erase_pingtarget (num)
+                self.curs.print_pingtarget (target, num)
+                time.sleep (PING_INTERVAL)
+                self.curs.erase_arrow (num)
+
+            self.curs.print_arrow (num)
+            time.sleep (PING_ALLTARGET_INTERVAL)
+            self.curs.erase_arrow (num)
+
+
+    def gettargetlist (self, configfile) :
+
+        try :
+            cf = open (configfile, "r")
+        except :
+            sys.exit (r'can not open config file "%s"' % (configfile))
+
+        targetlist = []
+
+        for line in cf :
+
+            line = re.sub ('\t', ' ', line)
+            line = re.sub ('\s+', ' ', line)
+            line = re.sub ('#.*', '', line)
+            line = line.strip (' \r\n')
+            line = line.rstrip (' \r\n')
+
+            if line == "" :
+                continue
+
+            name, addr = line.split (' ', 2)
+            targetlist.append ([name, addr])
+
+        cf.close ()
+
+        return targetlist
+
+
+
+
+def whichipversion (addr) :
+
+    if re.match (r'(\d{1,3}\.){3,3}\d{1,3}', addr)  :
+        return 4
+
+    if re.match (r'((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$', addr) :
+        return 6
+
+    return -1
+
+
+
+
+def main (stdscr) :
+
+    curses.start_color ()
+    curses.use_default_colors ()
+    curses.init_pair (UPSTR_COLOR_PAIR,
+                      curses.COLOR_WHITE, curses.COLOR_GREEN)
+    curses.init_pair (DOWNSTR_COLOR_PAIR,
+                      curses.COLOR_WHITE, curses.COLOR_RED)
+
+
+    pydman = Pydman (stdscr, sys.argv[1])
+    pydman.main ()
+
+    return
+
+
+PING_CRADLE = {
+    "Darwin" : PingDarwin,
+    "Linux" : PingLinux,
+    }
+
+
+if len (sys.argv) < 2 :
+    print "usage: pydman [config file]"
+    sys.exit ()
+
+if not PING_CRADLE.has_key (OSNAME) :
+    print "%s is not supported" % OSNAME    
+    sys.exit (0)
+
+curses.wrapper (main)
+
+
