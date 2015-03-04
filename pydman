@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import re
 import os
@@ -8,23 +9,27 @@ import commands
 import socket
 import curses
 import thread
+import locale
+from optparse import OptionParser
+
+locale.setlocale(locale.LC_ALL, "en_US.UTF-8") 
 
 
-# Configuration Values
-TITLE_PROGNAME = "PydMan (Python Dead Man)  "
+# Configuration
+TITLE_PROGNAME = "Python Dead Man"
 TITLE_HOSTINFO = "From: %s (%s)" % (
     commands.getoutput ("hostname") ,
     socket.gethostbyname (commands.getoutput ("hostname")))
-TITLE_VERSION = "[2015.3.3]"
-TITLE_KEYTYPE = "Keys: (r)efresh"
+TITLE_VERSION = "[2015.3.5]"
+
 TITLE_VERTIC_LENGTH = 4
+
 
 ARROW = ">"
 PING_INTERVAL = 0.1
 PING_ALLTARGET_INTERVAL = 1
 RESULT_STR_LENGTH   = 10
 MAX_HOSTNAME_LENGTH = 32
-MAX_ADDRESS_LENGTH  = 32
 
 # Static Values
 FRONT_SPACE_LENGTH = len (" %s " % (ARROW))
@@ -34,6 +39,10 @@ UPSTR   = "   UP   "
 DOWNSTR = "  DOWN  "
 UPSTR_COLOR_PAIR   = 1
 DOWNSTR_COLOR_PAIR = 2
+
+RTT_SCALE = 20
+CONFIGFILE = "pydman.conf"
+
 
 
 OSNAME = commands.getoutput ("uname -s")
@@ -47,11 +56,12 @@ class PingTarget :
         self.addr = address
         self.state = False
         self.loss = 0
+        self.lossrate = 0
         self.rtt = 0 # current RTT
         self.tot = 0 # total of all RTT
         self.avg = 0 # average of all RTT
         self.snt = 0 # number of sent ping
-        self.result = ""
+        self.result = []
 
         self.ping = ping (self.addr)
 
@@ -69,25 +79,44 @@ class PingTarget :
             self.rtt = res
             self.tot += res
             self.avg = (self.tot) / self.snt
-            self.result = "." + self.result
 
         elif res < 0 :
             # Ping Failed
+            self.loss += 1
             self.state = False
-            self.result = "!" + self.result
+            self.lossrate = self.loss / self.snt * 100
 
-        self.result = self.result[0:RESULT_STR_LENGTH]
+        self.result.insert (0, self.get_result_char (res))
+        if len (self.result) > RESULT_STR_LENGTH :
+            self.result.pop ()
 
         return
 
+    def get_result_char (self, rtt) :
+
+        if rtt < 0 :
+            return "!"
+
+        if rtt < RTT_SCALE * 1 : return "▁"
+        if rtt < RTT_SCALE * 2 : return "▂"
+        if rtt < RTT_SCALE * 3 : return "▃"
+        if rtt < RTT_SCALE * 4 : return "▄"
+        if rtt < RTT_SCALE * 5 : return "▅"
+        if rtt < RTT_SCALE * 6 : return "▆"
+        if rtt < RTT_SCALE * 7 : return "▇"
+
+        return "█"
+    
+
     def refresh (self) :
         self.state = None
+        self.lossrate = 0
         self.loss = 0
         self.rtt = 0
         self.tot = 0
         self.avg = 0
         self.snt = 0
-        self.result = ""
+        self.result = []
 
         return
 
@@ -105,7 +134,7 @@ class PingDarwin :
             self.ipversion = 6
         else :
             self.ipversion = -1
-            print "invalid IP address \"%s\"" % self.addr
+            print ("invalid IP address \"%s\"" % self.addr)
             raise
         return
 
@@ -149,7 +178,7 @@ class PingLinux :
             self.ipversion = 6
         else :
             self.ipversion = -1
-            print "invalid IP address \"%s\"" % self.addr
+            print ("invalid IP address \"%s\"" % self.addr)
             raise
         return
 
@@ -223,7 +252,7 @@ class CursesCtrl () :
         spacelen = self.x - (REAR_SPACE_LENGTH + len (TITLE_VERSION))
         self.stdscr.addstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
         self.stdscr.addstr (2, FRONT_SPACE_LENGTH,
-                            TITLE_KEYTYPE)
+                            "Ping Scale %d. Keys: (r)efresh" % RTT_SCALE)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -270,25 +299,34 @@ class CursesCtrl () :
     def print_pingtarget (self, target, number) :
         linenum = number + TITLE_VERTIC_LENGTH
 
-        # Print Hostname and Address
-        self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
-                            target.name[0:MAX_HOSTNAME_LENGTH])
-        self.stdscr.addstr (linenum, ADDRESS_START_POINT,
-                            target.addr[0:MAX_ADDRESS_LENGTH])
-
         # Print values
         values_str = "LOSS  RTT  AVG  SNT  RESULT"
         ref_start = self.x - (len (values_str) +
                               (RESULT_STR_LENGTH - len ("RESULT")) +
                               REAR_SPACE_LENGTH)
+        res_start = self.x - (REAR_SPACE_LENGTH + RESULT_STR_LENGTH)
 
-        values_str = "%3d%%%5d%5d%5d  %s" % (target.loss,
-                                             target.rtt,
-                                             target.avg,
-                                             target.snt,
-                                             target.result)
+        values_str = "%3d%%%5d%5d%5d  " % (target.lossrate,
+                                           target.rtt,
+                                           target.avg,
+                                           target.snt)
+
+        # Print ping line
+        address_len = self.x - (self.x - ref_start) - ADDRESS_START_POINT \
+                      - len (UPSTR) - 5
+
+        self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
+                            target.name[0:MAX_HOSTNAME_LENGTH])
+        self.stdscr.addstr (linenum, ADDRESS_START_POINT,
+                            target.addr[0:address_len])
 
         self.stdscr.addstr (linenum, ref_start, values_str)
+
+
+        for n in range (len (target.result)) :
+            self.stdscr.addstr (linenum, res_start + n, target.result[n])
+
+        #self.stdscr.addstr (linenum, res_start, target.result)
 
         # Print Up/Down State
         if target.state == True :
@@ -435,13 +473,11 @@ def main (stdscr) :
 
     curses.start_color ()
     curses.use_default_colors ()
-    curses.init_pair (UPSTR_COLOR_PAIR,
-                      curses.COLOR_WHITE, curses.COLOR_GREEN)
-    curses.init_pair (DOWNSTR_COLOR_PAIR,
-                      curses.COLOR_WHITE, curses.COLOR_RED)
+    curses.init_pair (UPSTR_COLOR_PAIR, -1, curses.COLOR_GREEN)
+    curses.init_pair (DOWNSTR_COLOR_PAIR, -1, curses.COLOR_RED)
 
 
-    pydman = Pydman (stdscr, sys.argv[1])
+    pydman = Pydman (stdscr, CONFIGFILE)
     pydman.main ()
 
     return
@@ -450,17 +486,29 @@ def main (stdscr) :
 PING_CRADLE = {
     "Darwin" : PingDarwin,
     "Linux" : PingLinux,
-    }
+}
 
 
-if len (sys.argv) < 2 :
-    print "usage: pydman [config file]"
-    sys.exit ()
+if __name__ == '__main__' :
+        
+    if not PING_CRADLE.has_key (OSNAME) :
+        print ("%s is not supported" % OSNAME)
+        sys.exit (0)
 
-if not PING_CRADLE.has_key (OSNAME) :
-    print "%s is not supported" % OSNAME    
-    sys.exit (0)
 
-curses.wrapper (main)
+    desc = "usage : %prog [options] configfile"
+    parser = OptionParser (desc)
+
+    parser.add_option (
+        '-s', '--scale', type = "int", default = 10, dest = 'scale',
+        help = 'scale of ping RTT bar gap.'
+    )
+
+    (options, args) = parser.parse_args ()
+
+    RTT_SCALE = options.scale
+    CONFIGFILE = args.pop ()
+
+    curses.wrapper (main)
 
 
