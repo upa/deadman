@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#
+# original software is "pingman".
+# Copyright 2015 Interop Tokyo ShowNet team All Rights Reserved.
+#
+# upa@haeena.net
+
 
 import re
 import os
@@ -15,13 +21,11 @@ from optparse import OptionParser
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8") 
 
 
-# Configuration
 TITLE_PROGNAME = "Python Dead Man"
 TITLE_HOSTINFO = "From: %s (%s)" % (
     commands.getoutput ("hostname") ,
     socket.gethostbyname (commands.getoutput ("hostname")))
 TITLE_VERSION = "[2015.3.5]"
-
 TITLE_VERTIC_LENGTH = 4
 
 
@@ -31,7 +35,6 @@ PING_ALLTARGET_INTERVAL = 1
 RESULT_STR_LENGTH   = 10
 MAX_HOSTNAME_LENGTH = 32
 
-# Static Values
 FRONT_SPACE_LENGTH = len (" %s " % (ARROW))
 REAR_SPACE_LENGTH  = 3  # static space length of rear space
 ADDRESS_START_POINT = 0  # is set below
@@ -39,6 +42,8 @@ UPSTR   = "   UP   "
 DOWNSTR = "  DOWN  "
 UPSTR_COLOR_PAIR   = 1
 DOWNSTR_COLOR_PAIR = 2
+UP_COLOR = 3
+DOWN_COLOR = 4
 
 RTT_SCALE = 20
 CONFIGFILE = "pydman.conf"
@@ -95,7 +100,7 @@ class PingTarget :
     def get_result_char (self, rtt) :
 
         if rtt < 0 :
-            return "!"
+            return "X"
 
         if rtt < RTT_SCALE * 1 : return "▁"
         if rtt < RTT_SCALE * 2 : return "▂"
@@ -312,8 +317,7 @@ class CursesCtrl () :
                                            target.snt)
 
         # Print ping line
-        address_len = self.x - (self.x - ref_start) - ADDRESS_START_POINT \
-                      - len (UPSTR) - 5
+        address_len = self.x - (self.x - ref_start) - ADDRESS_START_POINT - 1
 
         self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
                             target.name[0:MAX_HOSTNAME_LENGTH])
@@ -324,11 +328,16 @@ class CursesCtrl () :
 
 
         for n in range (len (target.result)) :
-            self.stdscr.addstr (linenum, res_start + n, target.result[n])
+            if target.result[n] != "X" :
+                color = UP_COLOR
+            else :
+                color = DOWN_COLOR
 
-        #self.stdscr.addstr (linenum, res_start, target.result)
+            self.stdscr.addstr (linenum, res_start + n, target.result[n],
+                                curses.color_pair (color))
 
         # Print Up/Down State
+        """
         if target.state == True :
             self.stdscr.addstr (linenum, ref_start - (len (UPSTR) + 2),
                                 UPSTR,
@@ -337,6 +346,7 @@ class CursesCtrl () :
             self.stdscr.addstr (linenum, ref_start - (len (DOWNSTR) + 2),
                                 DOWNSTR,
                                 curses.color_pair (DOWNSTR_COLOR_PAIR))
+        """
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
@@ -475,6 +485,8 @@ def main (stdscr) :
     curses.use_default_colors ()
     curses.init_pair (UPSTR_COLOR_PAIR, -1, curses.COLOR_GREEN)
     curses.init_pair (DOWNSTR_COLOR_PAIR, -1, curses.COLOR_RED)
+    curses.init_pair (UP_COLOR, curses.COLOR_GREEN, -1)
+    curses.init_pair (DOWN_COLOR, curses.COLOR_RED, -1)
 
 
     pydman = Pydman (stdscr, CONFIGFILE)
