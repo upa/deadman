@@ -347,7 +347,7 @@ class Pydman :
         global ADDRESS_START_POINT
         for name, addr in self.targetlist :
             if len (name) > ADDRESS_START_POINT :
-                ADDRESS_START_POINT = len (name)
+                ADDRESS_START_POINT = len (name) + 1
         ADDRESS_START_POINT += FRONT_SPACE_LENGTH + 3
         self.curs.print_title ()
 
@@ -357,6 +357,12 @@ class Pydman :
     def main (self) :
 
         thread.start_new_thread (self.curs.key_thread, tuple (self.targets))
+
+        # print blank line
+        num = 0
+        for target in self.targets :
+            num += 1
+            self.curs.print_pingtarget (target, num)
 
         while True :
 
