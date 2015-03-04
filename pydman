@@ -40,10 +40,9 @@ REAR_SPACE_LENGTH  = 3  # static space length of rear space
 ADDRESS_START_POINT = 0  # is set below
 UPSTR   = "   UP   "
 DOWNSTR = "  DOWN  "
-UPSTR_COLOR_PAIR   = 1
-DOWNSTR_COLOR_PAIR = 2
-UP_COLOR = 3
-DOWN_COLOR = 4
+DEFAULT_COLOR = 1
+UP_COLOR = 2
+DOWN_COLOR = 3
 
 RTT_SCALE = 20
 CONFIGFILE = "pydman.conf"
@@ -302,6 +301,12 @@ class CursesCtrl () :
         return
 
     def print_pingtarget (self, target, number) :
+
+        if target.state :
+            line_color = curses.color_pair (DEFAULT_COLOR)
+        else :
+            line_color = curses.A_BOLD
+
         linenum = number + TITLE_VERTIC_LENGTH
 
         # Print values
@@ -320,21 +325,21 @@ class CursesCtrl () :
         address_len = self.x - (self.x - ref_start) - ADDRESS_START_POINT - 1
 
         self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
-                            target.name[0:MAX_HOSTNAME_LENGTH])
+                            target.name[0:MAX_HOSTNAME_LENGTH], line_color)
         self.stdscr.addstr (linenum, ADDRESS_START_POINT,
-                            target.addr[0:address_len])
+                            target.addr[0:address_len], line_color)
 
-        self.stdscr.addstr (linenum, ref_start, values_str)
+        self.stdscr.addstr (linenum, ref_start, values_str, line_color)
 
 
         for n in range (len (target.result)) :
             if target.result[n] != "X" :
-                color = UP_COLOR
+                color = curses.color_pair (UP_COLOR)
             else :
-                color = DOWN_COLOR
+                color = curses.color_pair (DOWN_COLOR)
 
             self.stdscr.addstr (linenum, res_start + n, target.result[n],
-                                curses.color_pair (color))
+                                color)
 
         # Print Up/Down State
         """
@@ -483,8 +488,7 @@ def main (stdscr) :
 
     curses.start_color ()
     curses.use_default_colors ()
-    curses.init_pair (UPSTR_COLOR_PAIR, -1, curses.COLOR_GREEN)
-    curses.init_pair (DOWNSTR_COLOR_PAIR, -1, curses.COLOR_RED)
+    curses.init_pair (DEFAULT_COLOR, -1, -1)    
     curses.init_pair (UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair (DOWN_COLOR, curses.COLOR_RED, -1)
 
