@@ -22,31 +22,31 @@ locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Python Dead Man"
-TITLE_HOSTINFO = "From: %s (%s)" % (
-    commands.getoutput ("hostname") ,
-    socket.gethostbyname (commands.getoutput ("hostname")))
 TITLE_VERSION = "[2015.3.5]"
 TITLE_VERTIC_LENGTH = 4
 
+try :
+    TITLE_HOSTINFO = "From: %s (%s)" % (
+        commands.getoutput ("hostname"),
+        socket.gethostbyname (commands.getoutput ("hostname")))
+except :
+    TITLE_HOSTINFO = "From: %s" % commands.getoutput ("hostname")
 
-ARROW = ">"
+
+ARROW = " > "
+REAR  = "   "
 PING_INTERVAL = 0.1
 PING_ALLTARGET_INTERVAL = 1
-RESULT_STR_LENGTH   = 10
-MAX_HOSTNAME_LENGTH = 32
+MAX_HOSTNAME_LENGTH = 20
+MAX_ADDRESS_LENGTH = 40
+RESULT_STR_LENGTH = 10
 
-FRONT_SPACE_LENGTH = len (" %s " % (ARROW))
-REAR_SPACE_LENGTH  = 3  # static space length of rear space
-ADDRESS_START_POINT = 0  # is set below
-UPSTR   = "   UP   "
-DOWNSTR = "  DOWN  "
 DEFAULT_COLOR = 1
 UP_COLOR = 2
 DOWN_COLOR = 3
 
-RTT_SCALE = 20
+RTT_SCALE = 10
 CONFIGFILE = "pydman.conf"
-
 
 
 OSNAME = commands.getoutput ("uname -s")
@@ -91,7 +91,8 @@ class PingTarget :
             self.lossrate = self.loss / self.snt * 100
 
         self.result.insert (0, self.get_result_char (res))
-        if len (self.result) > RESULT_STR_LENGTH :
+        
+        while len (self.result) > RESULT_STR_LENGTH :
             self.result.pop ()
 
         return
@@ -219,7 +220,6 @@ class CursesCtrl () :
         self.stdscr = stdscr
         return
 
-
     def key_thread (self, *args) :
 
         while True :
@@ -235,28 +235,72 @@ class CursesCtrl () :
                     
                 
             
-    def update_info (self) :
+    def update_info (self, targets) :
+        # update start point and string length
+
         self.y, self.x = self.stdscr.getmaxyx ()
+
+        # update arrow
+        self.start_arrow = 0
+        self.length_arrow = len (ARROW)
+
+        # update hostname
+        hlen = 0
+        for target in targets :
+            if hlen < len (target.name) : hlen = len (target.name)
+        if hlen > MAX_HOSTNAME_LENGTH : hlen = MAX_HOSTNAME_LENGTH
+
+        self.start_hostname = self.start_arrow + self.length_arrow
+        self.length_hostname = hlen
+
+        # update address
+        alen = 0
+        for target in targets :
+            if alen < len (target.addr) : alen = len (target.addr)
+        if alen > MAX_ADDRESS_LENGTH : alen = MAX_ADDRESS_LENGTH
+
+        self.start_address = self.start_hostname + self.length_hostname + 1
+        self.length_address = alen
+
+        # update reference
+        self.ref_start = self.start_address + self.length_address + 1
+        self.ref_length = len ("LOSS  RTT  AVG  SNT")
+        
+        # update result
+        self.res_start = self.ref_start + self.ref_length + 2
+        self.res_length = self.x - (self.ref_start + self.ref_length + 2)
+
+        # reverse
+        if self.res_length < 10 :
+            rev = 10 - self.res_length + len (ARROW)
+            self.ref_start -= rev
+            self.res_start -= rev
+            self.res_length = 10
+
+        global RESULT_STR_LENGTH
+        RESULT_STR_LENGTH = self.res_length
+
         return
 
+
     def refresh (self) :
+
         self.stdscr.refresh ()
         return
 
     def print_title (self) :
-        self.update_info ()
 
         # Print Program name on center of top line
         spacelen = int ((self.x - len (TITLE_PROGNAME)) / 2)
         self.stdscr.addstr (0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
 
         # Print hostname and version number
-        self.stdscr.addstr (1, FRONT_SPACE_LENGTH, TITLE_HOSTINFO,
+        self.stdscr.addstr (1, self.start_hostname, TITLE_HOSTINFO,
                             curses.A_BOLD)
-        spacelen = self.x - (REAR_SPACE_LENGTH + len (TITLE_VERSION))
+        spacelen = self.x - (len (ARROW) + len (TITLE_VERSION))
         self.stdscr.addstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
-        self.stdscr.addstr (2, FRONT_SPACE_LENGTH,
-                            "Ping Scale %d. Keys: (r)efresh" % RTT_SCALE)
+        self.stdscr.addstr (2, len (ARROW),
+                            "RTT Scale %dms. Keys: (r)efresh" % RTT_SCALE)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -276,17 +320,13 @@ class CursesCtrl () :
         values_str = "LOSS  RTT  AVG  SNT  RESULT"
 
         # Print reference hostname and address
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, FRONT_SPACE_LENGTH,
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, len (ARROW),
                             hostname_str, curses.A_BOLD)
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, ADDRESS_START_POINT,
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, self.start_address,
                             address_str, curses.A_BOLD)
 
         # Print references of values
-        ref_start = self.x - (len (values_str) +
-                              (RESULT_STR_LENGTH - len ("RESULT")) +
-                              REAR_SPACE_LENGTH)
-
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, ref_start,
+        self.stdscr.addstr (TITLE_VERTIC_LENGTH, self.ref_start,
                             values_str, curses.A_BOLD)
 
         self.stdscr.move (0, 0)
@@ -310,26 +350,18 @@ class CursesCtrl () :
         linenum = number + TITLE_VERTIC_LENGTH
 
         # Print values
-        values_str = "LOSS  RTT  AVG  SNT  RESULT"
-        ref_start = self.x - (len (values_str) +
-                              (RESULT_STR_LENGTH - len ("RESULT")) +
-                              REAR_SPACE_LENGTH)
-        res_start = self.x - (REAR_SPACE_LENGTH + RESULT_STR_LENGTH)
-
         values_str = "%3d%%%5d%5d%5d  " % (target.lossrate,
                                            target.rtt,
                                            target.avg,
                                            target.snt)
 
         # Print ping line
-        address_len = self.x - (self.x - ref_start) - ADDRESS_START_POINT - 1
+        self.stdscr.addstr (linenum, self.start_hostname,
+                            target.name[0:self.length_hostname], line_color)
+        self.stdscr.addstr (linenum, self.start_address,
+                            target.addr[0:self.length_address], line_color)
 
-        self.stdscr.addstr (linenum, FRONT_SPACE_LENGTH,
-                            target.name[0:MAX_HOSTNAME_LENGTH], line_color)
-        self.stdscr.addstr (linenum, ADDRESS_START_POINT,
-                            target.addr[0:address_len], line_color)
-
-        self.stdscr.addstr (linenum, ref_start, values_str, line_color)
+        self.stdscr.addstr (linenum, self.ref_start, values_str, line_color)
 
 
         for n in range (len (target.result)) :
@@ -338,20 +370,14 @@ class CursesCtrl () :
             else :
                 color = curses.color_pair (DOWN_COLOR)
 
-            self.stdscr.addstr (linenum, res_start + n, target.result[n],
-                                color)
+            y, x = self.stdscr.getmaxyx()
+            if self.res_start + n > x :
+                continue
+            self.stdscr.addstr (linenum, self.res_start + n,
+                                target.result[n], color)
 
-        # Print Up/Down State
-        """
-        if target.state == True :
-            self.stdscr.addstr (linenum, ref_start - (len (UPSTR) + 2),
-                                UPSTR,
-                                curses.color_pair (UPSTR_COLOR_PAIR))
-        elif target.state == False :
-            self.stdscr.addstr (linenum, ref_start - (len (DOWNSTR) + 2),
-                                DOWNSTR,
-                                curses.color_pair (DOWNSTR_COLOR_PAIR))
-        """
+        y, x = self.stdscr.getmaxyx()
+        self.stdscr.addstr (linenum, x - len (REAR), REAR)
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
@@ -360,7 +386,7 @@ class CursesCtrl () :
     def print_arrow (self, number) :
         linenum = number + TITLE_VERTIC_LENGTH
 
-        self.stdscr.addstr (linenum, 1, ARROW)
+        self.stdscr.addstr (linenum, self.start_arrow, ARROW)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -372,7 +398,7 @@ class CursesCtrl () :
         for x in range (len (ARROW)) :
             space_str += " "
 
-        self.stdscr.addstr (linenum, 1, space_str)
+        self.stdscr.addstr (linenum, self.start_arrow, space_str)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -397,11 +423,8 @@ class Pydman :
         for name, addr in self.targetlist :
             self.targets.append (PingTarget (name, addr, PING_CRADLE[OSNAME]))
         
-        global ADDRESS_START_POINT
-        for name, addr in self.targetlist :
-            if len (name) > ADDRESS_START_POINT :
-                ADDRESS_START_POINT = len (name) + 1
-        ADDRESS_START_POINT += FRONT_SPACE_LENGTH + 3
+        self.curs.update_info (self.targets)
+
         self.curs.print_title ()
 
         return
@@ -419,7 +442,7 @@ class Pydman :
 
         while True :
 
-            self.curs.update_info ()
+            self.curs.update_info (self.targets)
             self.curs.erase_title ()
             self.curs.print_title ()
             self.curs.erase_reference ()
