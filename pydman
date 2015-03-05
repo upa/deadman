@@ -288,18 +288,31 @@ class CursesCtrl () :
         self.stdscr.refresh ()
         return
 
+    def waddstr (self, *args) :
+
+        # wrapper for stdscr.addstr
+
+        try :
+            if len (args) == 3 :
+                self.stdscr.addstr (args[0], args[1], args[2])
+            if len (args) > 3 :
+                self.stdscr.addstr (args[0], args[1], args[2], args[3])
+        except curses.error :
+            pass
+
+
     def print_title (self) :
 
         # Print Program name on center of top line
         spacelen = int ((self.x - len (TITLE_PROGNAME)) / 2)
-        self.stdscr.addstr (0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
+        self.waddstr (0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
 
         # Print hostname and version number
-        self.stdscr.addstr (1, self.start_hostname, TITLE_HOSTINFO,
+        self.waddstr (1, self.start_hostname, TITLE_HOSTINFO,
                             curses.A_BOLD)
         spacelen = self.x - (len (ARROW) + len (TITLE_VERSION))
-        self.stdscr.addstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
-        self.stdscr.addstr (2, len (ARROW),
+        self.waddstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
+        self.waddstr (2, len (ARROW),
                             "RTT Scale %dms. Keys: (r)efresh" % RTT_SCALE)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
@@ -309,9 +322,9 @@ class CursesCtrl () :
         space = ""
         for x in range (self.x) :
             space += " "
-        self.stdscr.addstr (0, 0, space)
-        self.stdscr.addstr (1, 0, space)
-        self.stdscr.addstr (2, 0, space)
+        self.waddstr (0, 0, space)
+        self.waddstr (1, 0, space)
+        self.waddstr (2, 0, space)
         return
 
     def print_reference (self) :
@@ -320,13 +333,13 @@ class CursesCtrl () :
         values_str = "LOSS  RTT  AVG  SNT  RESULT"
 
         # Print reference hostname and address
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, len (ARROW),
+        self.waddstr (TITLE_VERTIC_LENGTH, len (ARROW),
                             hostname_str, curses.A_BOLD)
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, self.start_address,
+        self.waddstr (TITLE_VERTIC_LENGTH, self.start_address,
                             address_str, curses.A_BOLD)
 
         # Print references of values
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, self.ref_start,
+        self.waddstr (TITLE_VERTIC_LENGTH, self.ref_start,
                             values_str, curses.A_BOLD)
 
         self.stdscr.move (0, 0)
@@ -337,7 +350,7 @@ class CursesCtrl () :
         space = ""
         for x in range (self.x) :
             space += " "
-        self.stdscr.addstr (TITLE_VERTIC_LENGTH, 0, space)
+        self.waddstr (TITLE_VERTIC_LENGTH, 0, space)
         return
 
     def print_pingtarget (self, target, number) :
@@ -356,12 +369,12 @@ class CursesCtrl () :
                                            target.snt)
 
         # Print ping line
-        self.stdscr.addstr (linenum, self.start_hostname,
+        self.waddstr (linenum, self.start_hostname,
                             target.name[0:self.length_hostname], line_color)
-        self.stdscr.addstr (linenum, self.start_address,
+        self.waddstr (linenum, self.start_address,
                             target.addr[0:self.length_address], line_color)
 
-        self.stdscr.addstr (linenum, self.ref_start, values_str, line_color)
+        self.waddstr (linenum, self.ref_start, values_str, line_color)
 
 
         for n in range (len (target.result)) :
@@ -373,11 +386,11 @@ class CursesCtrl () :
             y, x = self.stdscr.getmaxyx()
             if self.res_start + n > x :
                 continue
-            self.stdscr.addstr (linenum, self.res_start + n,
+            self.waddstr (linenum, self.res_start + n,
                                 target.result[n], color)
 
         y, x = self.stdscr.getmaxyx()
-        self.stdscr.addstr (linenum, x - len (REAR), REAR)
+        self.waddstr (linenum, x - len (REAR), REAR)
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
@@ -386,7 +399,7 @@ class CursesCtrl () :
     def print_arrow (self, number) :
         linenum = number + TITLE_VERTIC_LENGTH
 
-        self.stdscr.addstr (linenum, self.start_arrow, ARROW)
+        self.waddstr (linenum, self.start_arrow, ARROW)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -398,7 +411,7 @@ class CursesCtrl () :
         for x in range (len (ARROW)) :
             space_str += " "
 
-        self.stdscr.addstr (linenum, self.start_arrow, space_str)
+        self.waddstr (linenum, self.start_arrow, space_str)
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
@@ -408,7 +421,7 @@ class CursesCtrl () :
         space = ""
         for x in range (self.x) :
             space += " "
-        self.stdscr.addstr (linenum, 2, space)
+        self.waddstr (linenum, 2, space)
         return
 
 
