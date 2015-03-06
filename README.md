@@ -1,51 +1,44 @@
 deadman
 =======
 
-deadmanはCLI上で動作する複数のホストの生存確認をするためのソフトウェア
-です。よしなにライブラリをインストールしてご利用ください。
+deadman is, a ovservation software for host status by ping.
 
-メールで通知を飛ばすといった贅沢な機能はございません。ひたすら監視する
-だけです。イベント等でのネットワーク敷設など、短期決戦の場でのご利用が
-おすすめです。
+deadman does not have rich functionalities. It only check the host 
+status by ICMP. We recomend using deadman for building temporary network
+such as conference or event networks.
 
 
-How to use
+![demo](https://github.com/upa/deadman/raw/pydman/img/deadman-demo.gif)
+
+how to use
 ==========
 
-まずconfigを書きます。configの中身は下記のような感じ。
+at first, write a config file like below.
 
-	 % cat deadman.conf
-	 Google_DNS	=	8.8.8.8
-	 kame6		=	2001:200:dff:fff1:216:3eff:feb1:44d7
+	% cat deadman.conf
+	google          173.194.117.176
+	googleDNS       8.8.8.8
+	kame            203.178.141.194
+	kame6           2001:200:dff:fff1:216:3eff:feb1:44d7
 
+one line on config file indicate a observed host.
+IPv6 address is naturally supported.
 
-1行ごとに、空白を含まない文字列(画面に表示されるときの名前)に対して監視
-するIPv4またはIPv6アドレスを指定します。あとはconfigを指定して起動するだけ
-です。
+then,
 
-
- sudo ./deadman -c deadman.conf
-
-Net::PingがICMPを吐くためにroot privilegeが必要なのでsudoしてください。
-これだけです。そうするとこんな感じになります。
+	% ./deadman deadman.conf
 
 
-	                                     Dead Man
-	    local.host (x.x.x.x)                                    [ver 2.010.12]
-	    Keytype: [a] Display addr, [i] ping interval, [t] ping timeout, [q]uit
-	 
-	    HOSTNAME    ADDRESS                  LOSS%   RTT  AVG  SNT  RESULT
-	    Google_DNS  8.8.8.8           UP        0%    34   35    3  ...
-	  > kame6       2001:200:dff:ff   UP        0%     1    2    3  ..
- 
-
+Moreover, -s option indicates the scale of RTT bar graph. default is 10ms.
 
 
 Copyright
 =========
-deadman is INTEROP TOKYO SHOWNET TEAM all rights reserved.
+
+2015 Interop Tokyo ShowNet team All Rights Reserved.
+
 
 Contact
 =======
-upa@haeena.net
 
+upa@haeena.net

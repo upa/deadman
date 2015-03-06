@@ -1,502 +1,571 @@
-#!/usr/bin/perl
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 #
-# Copyright INTEROP TOKYO SHOWNET TEAM
-#    upa@haeena.net
+# original software is "pingman".
+# Copyright 2015 Interop Tokyo ShowNet team All Rights Reserved.
 #
-#	ToDo	
-#         Create [r] Refresh Display
-#         Port Check
-#
-# Change Log
-#   2011/09/15	  Added colored status (by yummy)
-#   2010/11/28    Add Growl Notify Options [-g] in Internet of Things 2010
-#   
-#
-
-use lib './lib';
-
-use strict;
-use Curses;
-use Switch;
-use threads;
-use threads::shared;
-use Time::HiRes;
-use Net::Ping;
-use Net::Ping6;
-use Getopt::Std;
+# upa@haeena.net
 
 
-############# Global Variables #############
+import re
+import os
+import sys
+import time
+import commands
+import socket
+import curses
+import thread
+import locale
+from optparse import OptionParser
 
-my %args = ();
-
-my $ping_host_interval = 0.04;
-my $ping_size = 32;
-my $ping_result_nums = 15;
-
-my $title_str  = "Dead Man";
-my $ver_str    = "[ver 2.010.12]";
-my $result_str = "  LOSS\%   RTT  AVG  SNT  RESULT";
-my $result_fmt = "  %4d%%   %3d  %3d %4d  %s";
-my $arrow      = " >"; 
-
-my $growl             = "/usr/local/bin/growlnotify";
-my $growl_title       = "Dead Man";
-my $growl_dead_cout   = 3; 
-my $growl_missed_time = 1;
-
-my $usage = 
-qq(
-Daed Man usage
-\t -c : -c [CONFIG FILE]
-\t -g : Enable Growl Notify\n
-);
-
-# Threads Shared Objects
-
-my $ping_timeout  : shared;
-my $ping_interval : shared;
-$ping_timeout  = 1;
-$ping_interval = 1;
-
-my $growl_enable : shared;
-
-my $indicate_addr : shared;
-my $quit_threads  : shared;
-$indicate_addr = 1;
-$quit_threads  = 0;
-
-my $cycle_interval : shared;
-
-my @name : shared;       # Target Hostname
-my @addr : shared;       # Target Address
-my @inet : shared;       # FAMILY INET (inet or inet6)
-my @rslt : shared;       # Result as Line
-my @loss : shared;       # Ping Loss Rate
-my @rtt  : shared;       # Ping Last RTT
-my @avg  : shared;       # RTT Average
-my @min  : shared;       # Minimum RTT
-my @max  : shared;       # Maximum RTT
-my @sum  : shared;       # RTT Sum
-
-my $sent : shared;       # sent Ping nums
-
-my $keytype_str : shared;
-$keytype_str = 
-"Keytype: [a] Display addr, [i] ping interval, [t] ping timeout, [q]uit";
-
-# Screen Position Values
-my $start_host : shared;
-my $start_addr : shared;
-my $start_rslt : shared;
-my $cursol_x   : shared;
-my $cursol_y   : shared;
-$cursol_x = 0;
-$cursol_y = 0;
+locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
-my $localaddr;
-my $hostname = `hostname`;
-chomp ($hostname);
-my @localinfo = gethostbyname ($hostname);
-shift (@localinfo);
-shift (@localinfo);
-shift (@localinfo);
-shift (@localinfo);
-foreach my $binary_addr (@localinfo) { 
-    $localaddr = sprintf ("%s.%s.%s.%s", unpack ('CCCC', $binary_addr));;
+TITLE_PROGNAME = "Dead Man"
+TITLE_VERSION = "[ver 15.3.5]"
+TITLE_VERTIC_LENGTH = 4
+
+try :
+    TITLE_HOSTINFO = "From: %s (%s)" % (
+        commands.getoutput ("hostname"),
+        socket.gethostbyname (commands.getoutput ("hostname")))
+except :
+    TITLE_HOSTINFO = "From: %s" % commands.getoutput ("hostname")
+
+
+ARROW = " > "
+REAR  = "   "
+PING_INTERVAL = 0.05
+PING_ALLTARGET_INTERVAL = 1
+MAX_HOSTNAME_LENGTH = 20
+MAX_ADDRESS_LENGTH = 40
+RESULT_STR_LENGTH = 10
+
+DEFAULT_COLOR = 1
+UP_COLOR = 2
+DOWN_COLOR = 3
+
+RTT_SCALE = 10
+CONFIGFILE = "deadman.conf"
+
+
+OSNAME = commands.getoutput ("uname -s")
+
+
+class PingTarget :
+
+    def __init__ (self, name, address, ping) :
+
+        self.name = name
+        self.addr = address
+        self.state = False
+        self.loss = 0
+        self.lossrate = 0.0
+        self.rtt = 0 # current RTT
+        self.tot = 0 # total of all RTT
+        self.avg = 0 # average of all RTT
+        self.snt = 0 # number of sent ping
+        self.result = []
+
+        self.ping = ping (self.addr)
+
+        return
+
+    def send (self) :
+
+        res = self.ping.send ()
+
+        self.snt += 1
+
+        if res >= 0 :
+            # Ping Success
+            self.state = True
+            self.rtt = res
+            self.tot += res
+            self.avg = (self.tot) / self.snt
+
+        elif res < 0 :
+            # Ping Failed
+            self.loss += 1
+            self.state = False
+
+        self.lossrate = float (self.loss) / float (self.snt) * 100.0
+        self.result.insert (0, self.get_result_char (res))
+
+        while len (self.result) > RESULT_STR_LENGTH :
+            self.result.pop ()
+
+        return
+
+    def get_result_char (self, rtt) :
+
+        if rtt < 0 :
+            return "X"
+
+        if rtt < RTT_SCALE * 1 : return "▁"
+        if rtt < RTT_SCALE * 2 : return "▂"
+        if rtt < RTT_SCALE * 3 : return "▃"
+        if rtt < RTT_SCALE * 4 : return "▄"
+        if rtt < RTT_SCALE * 5 : return "▅"
+        if rtt < RTT_SCALE * 6 : return "▆"
+        if rtt < RTT_SCALE * 7 : return "▇"
+
+        return "█"
+
+
+    def refresh (self) :
+        self.state = None
+        self.lossrate = 0.0
+        self.loss = 0
+        self.rtt = 0
+        self.tot = 0
+        self.avg = 0
+        self.snt = 0
+        self.result = []
+
+        return
+
+
+class PingDarwin :
+
+    def __init__ (self, addr, timeout = 1) :
+
+        self.addr = addr
+
+        ipver = whichipversion (self.addr)
+        if ipver == 4 :
+            self.ipversion = 4
+        elif ipver == 6 :
+            self.ipversion = 6
+        else :
+            self.ipversion = -1
+            print ("invalid IP address \"%s\"" % self.addr)
+            raise
+        return
+
+    def send (self) :
+        if self.ipversion == 4 :
+            return self.sendping4 ()
+        if self.ipversion == 6 :
+            return self.sendping6 ()
+        raise
+
+    def sendping4 (self) :
+        pingcmd = "ping -t 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+    def sendping6 (self) :
+        pingcmd = "ping6 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+class PingLinux :
+
+    def __init__ (self, addr, timeout = 1) :
+
+        self.addr = addr
+
+        ipver = whichipversion (self.addr)
+        if ipver == 4 :
+            self.ipversion = 4
+        elif ipver == 6 :
+            self.ipversion = 6
+        else :
+            self.ipversion = -1
+            print ("invalid IP address \"%s\"" % self.addr)
+            raise
+        return
+
+    def send (self) :
+        if self.ipversion == 4 :
+            return self.sendping4 ()
+        if self.ipversion == 6 :
+            return self.sendping6 ()
+        raise
+
+    def sendping4 (self) :
+        pingcmd = "ping -W 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+    def sendping6 (self) :
+        pingcmd = "ping6 -W 1 -c 1 %s" % self.addr
+        result = commands.getoutput (pingcmd)
+        m = re.search (r'time=\d+\.\d+', result)
+        if not m :
+            return -1
+
+        (time, rttstr) = m.group (0).split ('=')
+        return float (rttstr)
+
+
+class CursesCtrl () :
+
+    def __init__ (self, stdscr) :
+        self.stdscr = stdscr
+        return
+
+    def key_thread (self, *args) :
+
+        while True :
+            ch = self.stdscr.getch ()
+
+            if ch == ord ('r') :
+                num = 0
+                for target in args :
+                    num += 1
+                    target.refresh ()
+                    self.erase_pingtarget (num)
+                    self.print_pingtarget (target, num)
+
+
+    def update_info (self, targets) :
+        # update start point and string length
+
+        self.y, self.x = self.stdscr.getmaxyx ()
+
+        # update arrow
+        self.start_arrow = 0
+        self.length_arrow = len (ARROW)
+
+        # update hostname
+        hlen = 0
+        for target in targets :
+            if hlen < len (target.name) : hlen = len (target.name)
+        if hlen > MAX_HOSTNAME_LENGTH : hlen = MAX_HOSTNAME_LENGTH
+
+        self.start_hostname = self.start_arrow + self.length_arrow
+        self.length_hostname = hlen
+
+        # update address
+        alen = 0
+        for target in targets :
+            if alen < len (target.addr) : alen = len (target.addr)
+        if alen > MAX_ADDRESS_LENGTH : alen = MAX_ADDRESS_LENGTH
+
+        self.start_address = self.start_hostname + self.length_hostname + 1
+        self.length_address = alen
+
+        # update reference
+        self.ref_start = self.start_address + self.length_address + 1
+        self.ref_length = len (" LOSS  RTT  AVG  SNT")
+
+        # update result
+        self.res_start = self.ref_start + self.ref_length + 2
+        self.res_length = self.x - (self.ref_start + self.ref_length + 2)
+
+        # reverse
+        if self.res_length < 10 :
+            rev = 10 - self.res_length + len (ARROW)
+            self.ref_start -= rev
+            self.res_start -= rev
+            self.res_length = 10
+
+        global RESULT_STR_LENGTH
+        RESULT_STR_LENGTH = self.res_length
+
+        return
+
+
+    def refresh (self) :
+
+        self.stdscr.refresh ()
+        return
+
+    def waddstr (self, *args) :
+
+        # wrapper for stdscr.addstr
+
+        try :
+            if len (args) == 3 :
+                self.stdscr.addstr (args[0], args[1], args[2])
+            if len (args) > 3 :
+                self.stdscr.addstr (args[0], args[1], args[2], args[3])
+        except curses.error :
+            pass
+
+
+    def print_title (self) :
+
+        # Print Program name on center of top line
+        spacelen = int ((self.x - len (TITLE_PROGNAME)) / 2)
+        self.waddstr (0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
+
+        # Print hostname and version number
+        self.waddstr (1, self.start_hostname, TITLE_HOSTINFO,
+                            curses.A_BOLD)
+        spacelen = self.x - (len (ARROW) + len (TITLE_VERSION))
+        self.waddstr (1, spacelen, TITLE_VERSION, curses.A_BOLD)
+        self.waddstr (2, len (ARROW),
+                            "RTT Scale %dms. Keys: (r)efresh" % RTT_SCALE)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_title (self) :
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.waddstr (0, 0, space)
+        self.waddstr (1, 0, space)
+        self.waddstr (2, 0, space)
+        return
+
+    def print_reference (self) :
+        hostname_str = "HOSTNAME"
+        address_str = "ADDRESS"
+        values_str = " LOSS  RTT  AVG  SNT  RESULT"
+
+        # Print reference hostname and address
+        self.waddstr (TITLE_VERTIC_LENGTH, len (ARROW),
+                            hostname_str, curses.A_BOLD)
+        self.waddstr (TITLE_VERTIC_LENGTH, self.start_address,
+                            address_str, curses.A_BOLD)
+
+        # Print references of values
+        self.waddstr (TITLE_VERTIC_LENGTH, self.ref_start,
+                            values_str, curses.A_BOLD)
+
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_reference (self) :
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.waddstr (TITLE_VERTIC_LENGTH, 0, space)
+        return
+
+    def print_pingtarget (self, target, number) :
+
+        if target.state :
+            line_color = curses.color_pair (DEFAULT_COLOR)
+        else :
+            line_color = curses.A_BOLD
+
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        # Print values
+        values_str = " %3d%%%5d%5d%5d  " % (int(target.lossrate),
+                                           target.rtt,
+                                           target.avg,
+                                           target.snt)
+
+        # Print ping line
+        self.waddstr (linenum, self.start_hostname,
+                            target.name[0:self.length_hostname], line_color)
+        self.waddstr (linenum, self.start_address,
+                            target.addr[0:self.length_address], line_color)
+
+        self.waddstr (linenum, self.ref_start, values_str, line_color)
+
+
+        for n in range (len (target.result)) :
+            if target.result[n] != "X" :
+                color = curses.color_pair (UP_COLOR)
+            else :
+                color = curses.color_pair (DOWN_COLOR)
+
+            y, x = self.stdscr.getmaxyx()
+            if self.res_start + n > x :
+                continue
+            self.waddstr (linenum, self.res_start + n,
+                                target.result[n], color)
+
+        y, x = self.stdscr.getmaxyx()
+        self.waddstr (linenum, x - len (REAR), REAR)
+
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def print_arrow (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        self.waddstr (linenum, self.start_arrow, ARROW)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_arrow (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+
+        space_str = ""
+        for x in range (len (ARROW)) :
+            space_str += " "
+
+        self.waddstr (linenum, self.start_arrow, space_str)
+        self.stdscr.move (0, 0)
+        self.stdscr.refresh ()
+        return
+
+    def erase_pingtarget (self, number) :
+        linenum = number + TITLE_VERTIC_LENGTH
+        space = ""
+        for x in range (self.x) :
+            space += " "
+        self.waddstr (linenum, 2, space)
+        return
+
+
+class Deadman :
+
+    def __init__ (self, stdscr, configfile) :
+
+        self.targets = []
+        self.curs = CursesCtrl (stdscr)
+        self.targetlist = self.gettargetlist (configfile)
+
+        for name, addr in self.targetlist :
+            self.targets.append (PingTarget (name, addr, PING_CRADLE[OSNAME]))
+
+        self.curs.update_info (self.targets)
+
+        self.curs.print_title ()
+
+        return
+
+
+    def main (self) :
+
+        thread.start_new_thread (self.curs.key_thread, tuple (self.targets))
+
+        # print blank line
+        num = 0
+        for target in self.targets :
+            num += 1
+            self.curs.print_pingtarget (target, num)
+
+        while True :
+
+            self.curs.update_info (self.targets)
+            self.curs.erase_title ()
+            self.curs.print_title ()
+            self.curs.erase_reference ()
+            self.curs.print_reference ()
+
+            num = 0
+            for target in self.targets :
+                num += 1
+
+                self.curs.print_arrow (num)
+                target.send ()
+                self.curs.erase_pingtarget (num)
+                self.curs.print_pingtarget (target, num)
+                time.sleep (PING_INTERVAL)
+                self.curs.erase_arrow (num)
+
+            self.curs.print_arrow (num)
+            time.sleep (PING_ALLTARGET_INTERVAL)
+            self.curs.erase_arrow (num)
+            self.curs.erase_pingtarget (num + 1)
+
+
+    def gettargetlist (self, configfile) :
+
+        try :
+            cf = open (configfile, "r")
+        except :
+            sys.exit (r'can not open config file "%s"' % (configfile))
+
+        targetlist = []
+
+        for line in cf :
+
+            line = re.sub ('\t', ' ', line)
+            line = re.sub ('\s+', ' ', line)
+            line = re.sub ('#.*', '', line)
+            line = line.strip (' \r\n')
+            line = line.rstrip (' \r\n')
+
+            if line == "" :
+                continue
+
+            name, addr = line.split (' ', 2)
+            targetlist.append ([name, addr])
+
+        cf.close ()
+
+        return targetlist
+
+
+
+
+def whichipversion (addr) :
+
+    if re.match (r'(\d{1,3}\.){3,3}\d{1,3}', addr)  :
+        return 4
+
+    if re.match (r'((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$', addr) :
+        return 6
+
+    return -1
+
+
+
+
+def main (stdscr) :
+
+    curses.start_color ()
+    curses.use_default_colors ()
+    curses.init_pair (DEFAULT_COLOR, -1, -1)
+    curses.init_pair (UP_COLOR, curses.COLOR_GREEN, -1)
+    curses.init_pair (DOWN_COLOR, curses.COLOR_RED, -1)
+
+
+    deadman = Deadman (stdscr, CONFIGFILE)
+    deadman.main ()
+
+    return
+
+
+PING_CRADLE = {
+    "Darwin" : PingDarwin,
+    "Linux" : PingLinux,
 }
 
 
-############# Initialize #############
+if __name__ == '__main__' :
 
-getopts "c:g", \%args or die $usage;
-if ($args{'c'}) {
-    &config_parser ($args{'c'});
-}
-if ($args{'g'}) {
-    $growl_enable = 1; 
-}
+    if not PING_CRADLE.has_key (OSNAME) :
+        print ("%s is not supported" % OSNAME)
+        sys.exit (0)
 
 
-my $num = 0;
-foreach (@addr) {
-    $inet[$num] = ($_ =~ /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/) ?
-	"inet" : "inet6";
-    $num++;
-}
+    desc = "usage : %prog [options] configfile"
+    parser = OptionParser (desc)
 
-my $ping  = Net::Ping->new ("icmp", $ping_timeout, $ping_size);
-my $ping6 = Net::Ping6->new ('udp', $ping_timeout, $ping_size); 
+    parser.add_option (
+        '-s', '--scale', type = "int", default = 10, dest = 'scale',
+        help = 'scale of ping RTT bar gap.'
+    )
 
-initscr;
-cbreak;
-noecho;
+    (options, args) = parser.parse_args ()
 
-my $win = new Curses;
+    RTT_SCALE = options.scale
+    try :
+        CONFIGFILE = args.pop ()
+    except :
+        print "config file is not specified. deadman [-s scale] configfile"
+        sys.exit ()
 
-start_color;
-use_default_colors; 
-init_pair (1, COLOR_WHITE, COLOR_RED);
-init_pair (2, COLOR_WHITE, COLOR_GREEN);
-
-&init_screen_position ();
-my $num = 0;
-$sent = 1;
-foreach (@name) {
-    &print_header ($win);
-    &print_ping_result  ($win, $num);
-    $num++;
-}
-$sent = 0;
-
-# Init Threads, process_keys and main_routine
-my $thread_process_keys = threads->new(\&process_keys, $win);
-my $thread_main_routine = threads->new(\&main_routine);
-$thread_process_keys->join;
-$thread_main_routine->join;
-
-$win->move (0,0);
-$win->refresh;
-
-sleep (2);
-
-$win->clear;
-$win->endwin;
-delwin;
-exit;
-
-
-############# Main Routine #############
-
-sub main_routine {
-    while (1) {
-	$sent++;
-	&init_screen_position ();
-	&print_header ($win);
-	my $num = 0;
-	foreach (@name) {
-	    $cycle_interval = 0;
-	    $win->addstr (5 + $num, 0, $arrow);
-	    $win->move($cursol_y, $cursol_x);
-	    $win->refresh;
-	    &ping_routine ($ping, $num);
-	    &print_ping_result ($win, $num);
-	    select undef, undef, undef, $ping_host_interval;
-	    $win->addstr (5 + $num, 0, "   ");
-	    $win->refresh;
-	    $num++;
-	    $cycle_interval += $rtt[$num];
-	}
-	$win->addstr (5 + $num - 1, 0, $arrow);
-	$win->move (5 + $num, 0);
-	$win->clrtoeol;
-	$win->move($cursol_y, $cursol_x);
-	$win->refresh;
-	my $interval = $ping_interval - $cycle_interval;
-	sleep (($interval > 0) ? $interval : 0 );
-	$win->addstr (5 + $num - 1, 0, "   ");
-	$win->refresh;
-	if ($quit_threads != 0) {
-	    last;
-	}
-    }
-    return 0;
-}
-
-
-############# Process Keytype Routine #############
-
-sub process_keys {
-
-    my $win = shift;
-    
-    while (1) {
-	my $c = $win->getch();
-	switch ($c) {
-	    case 'a'
-	    {
-		($indicate_addr > 0) ? &erase_addr($win) : &print_addr($win);
-		$indicate_addr = ($indicate_addr > 0) ? 0 : 1; 
-	    };
-	    case 'i' {&keytype_ping_interval($win); }
-	    case 't' {&keytype_ping_timeout($win); }
-	    case 'r' {&keytype_refresh_status($win); }
-	    case 'q' {$quit_threads = 1; last; }
-	}
-    }
-    return 0;
-}
-
-
-
-############# Sub Routine #############
-
-sub keytype_refresh_status {
-    my $win = shift;
-    
-    $sent = 1;
-    my $num = @name;
-    for (my $n = 0; $n < $num - 1; $n++) {
-	$rslt[$n] = "";
-	$loss[$n] = 0;
-	$rtt[$n] = 0;
-	$avg[$n] = 0;
-	$min[$n] = 0;
-	$max[$n] = 0;
-	$sum[$n] = 0;
-	&print_header ($win);
-	&print_ping_result ($win, $num);
-	$win->refresh;
-    }
-}
-
-sub keytype_ping_interval {
-    my $win = shift;
-    my $ch;
-    my $interval = "";
-    my $tmp = $keytype_str;
-    $keytype_str = "keytpye: Set Ping Interval = ";
-    &print_header($win);
-    $cursol_y = 2;
-    $cursol_x = length ($keytype_str) + 3;
-    $win->move($cursol_y, $cursol_x); 
-    $win->refresh;
-    $interval = "";
-    while (1) {
-	$ch = $win->getch();				    
-	if ($ch !~ m/[0-9]|\./) { last; }
-	$interval .= $ch;
-	$keytype_str .= $ch;
-	$cursol_x++;
-	$win->move($cursol_y, $cursol_x);
-	&print_header ($win);
-    }
-    $ping_interval = ($interval =~ /^[0-9]/ && $interval !~ /\..*\./) 
-	? $interval : $ping_interval;
-    $cursol_x = 0;
-    $cursol_y = 0;
-    $keytype_str = $tmp;
-    &print_header($win);
-}
-
-sub keytype_ping_timeout {
-    my $win = shift;
-    my $ch;
-    my $timeout;
-    my $tmp = $keytype_str;
-    $keytype_str = "keytpye: Set Ping Timeout = ";
-    &print_header($win);
-    $cursol_y = 2;
-    $cursol_x = length ($keytype_str) + 3;
-    $win->move($cursol_y, $cursol_x); 
-    $win->refresh;
-    while (1) {
-	$ch = $win->getch();				    
-	if ($ch !~ m/[0-9]|\./) { last; }
-	$timeout .= $ch;
-	$keytype_str .= $ch;
-	$cursol_x++;
-	$win->move($cursol_y, $cursol_x);
-	&print_header ($win);
-    }
-    $ping_timeout = $timeout;
-    $cursol_x = 0;
-    $cursol_y = 0;
-    $keytype_str = $tmp;
-    &print_header($win);
-}
-
-
-sub print_addr {
-
-    my $win = shift;
-
-    $win->attron (A_BOLD);
-    $win->addnstr (4, $start_addr, " ADDRESS", $start_rslt - $start_addr);
-    $win->attroff (A_BOLD);
-    
-    my $num = 0;
-    foreach (@addr) {
-	$win->addnstr (5 + $num, $start_addr, 
-		      " $addr[$num]", $start_rslt - $start_addr);
-	$num++;
-    }
-    $win->move($cursol_y, $cursol_x);
-    $win->refresh;
-}
-
-
-sub erase_addr {
-
-    my $win = shift;
-
-    my $num;
-    my $erase_line;
-    for ($num = 0; $num < ($start_rslt - $start_addr); $num++) {
-	$erase_line .= " ";
-    }
-    $win->addstr (4, $start_addr, $erase_line);
-
-    $num = 0;
-    foreach (@addr) {
-	$win->addstr (5 + $num, $start_addr, $erase_line);
-	$num++;
-    }
-    $win->move($cursol_y, $cursol_x);
-    $win->refresh;
-}
-
-sub print_header {
-
-    my $win = shift;
-    my $x = getmaxx;
-    my $y = getmaxy;
-    
-    $win->attron (A_BOLD);
-    $win->move(0, 0);
-    $win->clrtoeol;
-    $win->addstr (0, int (($x - length ($title_str))/2) , $title_str);
-
-    $win->move (1, 0);
-    $win->clrtoeol;
-    $win->attroff (A_BOLD);
-    $win->addstr (1, 3, "$hostname ($localaddr)");
-    $win->attron (A_BOLD);
-    $win->addstr (1, $x - length ($ver_str) - 2, $ver_str);
-
-    $win->move (2, 0);
-    $win->clrtoeol;
-    $win->addstr (2, 3, $keytype_str);
-
-    $win->move (3, 0);
-    $win->clrtoeol;
-
-    $win->move(4, 0);
-    $win->clrtoeol;
-    $win->addstr (4, $start_host, " HOSTNAME");
-    if ($indicate_addr) { $win->addstr (4, $start_addr, " ADDRESS"); }
-    $win->addstr (4, $start_rslt, $result_str);
-    $win->move($cursol_y, $cursol_x);
-    $win->refresh;
-    $win->attroff (A_BOLD);
-}
-
-sub print_ping_result {
-    
-    my $win = shift;
-    my $num = shift;
-
-    my $x = getmaxx;
-    my $y = getmaxy;
-    
-    if ($rslt[$num] =~ /^!/) {
-	$win->attron (A_BOLD);
-	$win->attron (A_BLINK);
-    }
-    if ($growl_enable == 1 && $rslt[$num] =~ /^!\.{$growl_dead_cout,}/) {
-	my $growl_message = $name[$num] . " is " . "down!!";
-	system $growl, '-t', $growl_title, '-m', $growl_message,  
-    }
-
-    $win->move(5 + $num, $start_host);
-    $win->clrtoeol;
-    $win->addstr (5 + $num, $start_host, " $name[$num]");
-    if ($indicate_addr) { $win->addstr (5 + $num, $start_addr, " $addr[$num]");}
-    if ($rslt[$num] =~ /^!/) {
-	$win->attron (COLOR_PAIR(1));
-        $win->addstr (5 + $num, $start_rslt - 8, "  DOWN  ");
-        $win->attroff (COLOR_PAIR(1));
-    } else { 
-        $win->attron (COLOR_PAIR(2));
-        $win->addstr (5 + $num, $start_rslt - 8, "   UP   ");
-        $win->attroff (COLOR_PAIR(2));
-    }
-    $win->addstr (5 + $num, $start_rslt,
-                  sprintf ($result_fmt,
-                           $loss[$num]/$sent * 100, $rtt[$num], $avg[$num],
-                           $sent, $rslt[$num]));
-    $win->move($cursol_y, $cursol_x);
-
-    if ($rslt[$num] =~ /^!/) {
-	$win->attroff (A_BOLD);
-	$win->attroff (A_BLINK);
-    }
-    $win->refresh;
-
-}
-
-
-sub init_screen_position {
-   $start_host = 2;
-    my $longest_name = "HOSTNAME";
-    foreach (@name) {
-	if (length ($longest_name) < length ($_)) {
-	    $longest_name = $_;
-	}
-    }
-   $start_addr = length ($longest_name) + $start_host + 2;
-   $start_rslt = $win->getmaxx - $ping_result_nums 
-       - length ($result_str) + 4;
-}
-
-
-sub ping_routine {
-    
-    my $ping = shift;
-    my $num = shift;
-
-    my $before = Time::HiRes::time ();
-    my $p_rslt = ($inet[$num] eq "inet") ?
-	$ping->ping ($addr[$num], $ping_timeout) : 
-	$ping6->ping ($addr[$num], $ping_timeout);
-    $rtt[$num] = (Time::HiRes::time () - $before) * 1000;
-
-    if ($min[$num] == 0) {$min[$num] = $rtt[$num]; }
-    $min[$num] = ($min[$num] > $rtt[$num]) ? $rtt[$num] : $min[$num];
-    $max[$num] = ($max[$num] < $rtt[$num]) ? $rtt[$num] : $max[$num];
-
-    $rslt[$num] = ($p_rslt) ? "." . $rslt[$num] : "!" . $rslt[$num];
-
-    if ($p_rslt) { $sum[$num] += $rtt[$num]; $avg[$num] = $sum[$num] / $sent }
-    else { $loss[$num]++; $rtt[$num] = 0}
-
-    if (length ($rslt[$num]) > $ping_result_nums) {
-	chop $rslt[$num];
-    }
-}
-
-
-
-sub config_parser {
-
-    my $config = shift;
-    open (CONF, "<$config") or die "Can't Open Config File $config";
-    
-    foreach (<CONF>) {
-	$_ =~ s/\t| //g;
-	if ($_ !~ /^\#|^(\r\n|\n\r|\r|\n)/) {
-	    $_ =~ s/\#.*$//;
-	    chomp ($_);
-	    my @split = split (/=/, $_);
-	    push (@name, $split[0]);
-	    push (@addr, $split[1]);
-	}
-    }
-    close CONF;
-}
-
-
-sub argv_parser {
-    
-    my @argv = @ARGV;
-    shift (@argv);
-    foreach (@argv) {
-	    my @split = split (/=/, $_);
-	    $split[1] =~ s/(\r\n|\n\r|\r|\n)$//;
-	    push (@name, $split[0]); 
-	    push (@addr, $split[1]); 
-    }
-}
+    curses.wrapper (main)
 
 
