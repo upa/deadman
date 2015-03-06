@@ -18,7 +18,7 @@ import thread
 import locale
 from optparse import OptionParser
 
-locale.setlocale(locale.LC_ALL, "en_US.UTF-8") 
+locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Python Dead Man"
@@ -35,7 +35,7 @@ except :
 
 ARROW = " > "
 REAR  = "   "
-PING_INTERVAL = 0.1
+PING_INTERVAL = 0.05
 PING_ALLTARGET_INTERVAL = 1
 MAX_HOSTNAME_LENGTH = 20
 MAX_ADDRESS_LENGTH = 40
@@ -91,7 +91,7 @@ class PingTarget :
 
         self.lossrate = float (self.loss) / float (self.snt) * 100.0
         self.result.insert (0, self.get_result_char (res))
-        
+
         while len (self.result) > RESULT_STR_LENGTH :
             self.result.pop ()
 
@@ -111,7 +111,7 @@ class PingTarget :
         if rtt < RTT_SCALE * 7 : return "▇"
 
         return "█"
-    
+
 
     def refresh (self) :
         self.state = None
@@ -125,7 +125,7 @@ class PingTarget :
 
         return
 
-        
+
 class PingDarwin :
 
     def __init__ (self, addr, timeout = 1) :
@@ -213,7 +213,8 @@ class PingLinux :
 
         (time, rttstr) = m.group (0).split ('=')
         return float (rttstr)
-    
+
+
 class CursesCtrl () :
 
     def __init__ (self, stdscr) :
@@ -232,9 +233,8 @@ class CursesCtrl () :
                     target.refresh ()
                     self.erase_pingtarget (num)
                     self.print_pingtarget (target, num)
-                    
-                
-            
+
+
     def update_info (self, targets) :
         # update start point and string length
 
@@ -265,7 +265,7 @@ class CursesCtrl () :
         # update reference
         self.ref_start = self.start_address + self.length_address + 1
         self.ref_length = len (" LOSS  RTT  AVG  SNT")
-        
+
         # update result
         self.res_start = self.ref_start + self.ref_length + 2
         self.res_length = self.x - (self.ref_start + self.ref_length + 2)
@@ -345,7 +345,7 @@ class CursesCtrl () :
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
         return
-    
+
     def erase_reference (self) :
         space = ""
         for x in range (self.x) :
@@ -435,7 +435,7 @@ class Pydman :
 
         for name, addr in self.targetlist :
             self.targets.append (PingTarget (name, addr, PING_CRADLE[OSNAME]))
-        
+
         self.curs.update_info (self.targets)
 
         self.curs.print_title ()
@@ -525,7 +525,7 @@ def main (stdscr) :
 
     curses.start_color ()
     curses.use_default_colors ()
-    curses.init_pair (DEFAULT_COLOR, -1, -1)    
+    curses.init_pair (DEFAULT_COLOR, -1, -1)
     curses.init_pair (UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair (DOWN_COLOR, curses.COLOR_RED, -1)
 
@@ -543,7 +543,7 @@ PING_CRADLE = {
 
 
 if __name__ == '__main__' :
-        
+
     if not PING_CRADLE.has_key (OSNAME) :
         print ("%s is not supported" % OSNAME)
         sys.exit (0)
