@@ -8,7 +8,7 @@ status using ICMP echo. We recomend using deadman for building temporary
 network such as conference or event networks.
 
 
-![demo](https://github.com/upa/deadman/raw/pydman/img/deadman-demo.gif)
+![demo](https://github.com/upa/deadman/raw/master/img/deadman-demo.gif)
 
 how to use
 ==========
