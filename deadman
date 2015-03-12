@@ -151,7 +151,7 @@ class PingDarwin :
         raise
 
     def sendping4 (self) :
-        pingcmd = "ping -t 1 -c 1 %s" % self.addr
+        pingcmd = "ping -W 1000 -c 1 %s" % self.addr
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
         if not m :
