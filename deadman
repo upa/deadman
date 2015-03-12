@@ -245,7 +245,7 @@ class CursesCtrl () :
         self.length_arrow = len (ARROW)
 
         # update hostname
-        hlen = 0
+        hlen = len ("HOSTNAME ")
         for target in targets :
             if hlen < len (target.name) : hlen = len (target.name)
         if hlen > MAX_HOSTNAME_LENGTH : hlen = MAX_HOSTNAME_LENGTH
@@ -254,10 +254,11 @@ class CursesCtrl () :
         self.length_hostname = hlen
 
         # update address
-        alen = 0
+        alen = len ("ADDRESS ")
         for target in targets :
             if alen < len (target.addr) : alen = len (target.addr)
         if alen > MAX_ADDRESS_LENGTH : alen = MAX_ADDRESS_LENGTH
+        else : alen += 5
 
         self.start_address = self.start_hostname + self.length_hostname + 1
         self.length_address = alen
