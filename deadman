@@ -364,10 +364,10 @@ class CursesCtrl () :
         linenum = number + TITLE_VERTIC_LENGTH
 
         # Print values
-        values_str = " %3d%%%5d%5d%5d  " % (int(target.lossrate),
-                                           target.rtt,
-                                           target.avg,
-                                           target.snt)
+        values_str = " %3d%% %4d %4d %4d  " % (int(target.lossrate),
+                                               target.rtt,
+                                               target.avg,
+                                               target.snt)
 
         # Print ping line
         self.waddstr (linenum, self.start_hostname,
