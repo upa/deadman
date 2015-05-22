@@ -34,7 +34,7 @@ Moreover, -s option indicates the scale of RTT bar graph. default is 10ms.
 ping via remote host through ssh is implemented.
 For example, 
 
-	google-via-sfc  173.194.117.176 relay=X.X.X.X os=Linux
+	google-via-ssh  173.194.117.176 relay=X.X.X.X os=Linux
 
 this line means sending ping to a google server via remote server X.X.X.X.
 username and ssh-key for remote host can be specified by _user=USER_,
