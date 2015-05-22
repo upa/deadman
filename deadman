@@ -49,15 +49,18 @@ RTT_SCALE = 10
 CONFIGFILE = "deadman.conf"
 
 
+SSH_CONNECT_TIMEOUT = 3
+
 OSNAME = commands.getoutput ("uname -s")
 
 
 class PingTarget :
 
-    def __init__ (self, name, address, ping) :
+    def __init__ (self, name, address, relay, ping) :
 
         self.name = name
         self.addr = address
+        self.relay = relay
         self.state = False
         self.loss = 0
         self.lossrate = 0.0
@@ -67,7 +70,7 @@ class PingTarget :
         self.snt = 0 # number of sent ping
         self.result = []
 
-        self.ping = ping (self.addr)
+        self.ping = ping (self.addr, relay)
 
         return
 
@@ -99,7 +102,12 @@ class PingTarget :
 
     def get_result_char (self, rtt) :
 
-        if rtt < 0 :
+        if rtt == -2 :
+            # ssh timeout
+            return "t"
+
+        if rtt == -1 :
+            # ping timeout
             return "X"
 
         if rtt < RTT_SCALE * 1 : return "▁"
@@ -127,10 +135,14 @@ class PingTarget :
 
 
 class PingDarwin :
-
-    def __init__ (self, addr, timeout = 1) :
+    """
+    XXX: PingOSNAME should be wrapped by super class.
+    and move ssh functionality to paramiko ?
+    """
+    def __init__ (self, addr, relay, timeout = 1) :
 
         self.addr = addr
+        self.ssh = None
 
         ipver = whichipversion (self.addr)
         if ipver == 4 :
@@ -170,11 +182,13 @@ class PingDarwin :
         (time, rttstr) = m.group (0).split ('=')
         return float (rttstr)
 
+
 class PingLinux :
 
-    def __init__ (self, addr, timeout = 1) :
+    def __init__ (self, addr, relay, timeout = 1) :
 
         self.addr = addr
+        self.relay = relay
 
         ipver = whichipversion (self.addr)
         if ipver == 4 :
@@ -183,8 +197,7 @@ class PingLinux :
             self.ipversion = 6
         else :
             self.ipversion = -1
-            print ("invalid IP address \"%s\"" % self.addr)
-            raise
+            raise RuntimeError ("invalid IP address \"%s\"" % self.addr)
         return
 
     def send (self) :
@@ -194,25 +207,33 @@ class PingLinux :
             return self.sendping6 ()
         raise
 
-    def sendping4 (self) :
-        pingcmd = "ping -W 1 -c 1 %s" % self.addr
+    def sendping46 (self, pingcmdstr) :
+
+        sshcmd = ""
+        if self.relay :
+            sshcmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
+                      SSH_CONNECT_TIMEOUT)
+            if self.relay.has_key ("key") :
+                sshcmd += "-i %s " % self.relay["key"]
+            if self.relay.has_key ("user") :
+                sshcmd += "-l %s " % self.relay["user"]
+            sshcmd += "%s " % self.relay["relay"]
+
+        pingcmd = sshcmd + pingcmdstr + " %s" % self.addr
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
         if not m :
+            if re.search (r'Operation timed out', result) : return -2
             return -1
 
         (time, rttstr) = m.group (0).split ('=')
         return float (rttstr)
+
+    def sendping4 (self) :
+        return self.sendping46 ("ping -W 1000 -c 1")
 
     def sendping6 (self) :
-        pingcmd = "ping6 -W 1 -c 1 %s" % self.addr
-        result = commands.getoutput (pingcmd)
-        m = re.search (r'time=\d+\.\d+', result)
-        if not m :
-            return -1
-
-        (time, rttstr) = m.group (0).split ('=')
-        return float (rttstr)
+        return self.sendping46 ("ping6 -W 1 -c 1")
 
 
 class CursesCtrl () :
@@ -379,7 +400,7 @@ class CursesCtrl () :
 
 
         for n in range (len (target.result)) :
-            if target.result[n] != "X" :
+            if target.result[n] != "X" and target.result[n] != "t" :
                 color = curses.color_pair (UP_COLOR)
             else :
                 color = curses.color_pair (DOWN_COLOR)
@@ -434,8 +455,13 @@ class Deadman :
         self.curs = CursesCtrl (stdscr)
         self.targetlist = self.gettargetlist (configfile)
 
-        for name, addr in self.targetlist :
-            self.targets.append (PingTarget (name, addr, PING_CRADLE[OSNAME]))
+        for name, addr, relay in self.targetlist :
+            if relay.has_key ("os") :
+                self.targets.append (PingTarget (name, addr, relay,
+                                                 PING_CRADLE[relay["os"]]))
+            else :
+                self.targets.append (PingTarget (name, addr, relay,
+                                                 PING_CRADLE[OSNAME]))
 
         self.curs.update_info (self.targets)
 
@@ -499,8 +525,15 @@ class Deadman :
             if line == "" :
                 continue
 
-            name, addr = line.split (' ', 2)
-            targetlist.append ([name, addr])
+            ss = line.split (' ')
+            name = ss.pop (0)
+            addr = ss.pop (0)
+            relay = {}
+            for s in ss :
+                a, v = s.split ("=")
+                relay[a] = v
+
+            targetlist.append ([name, addr, relay])
 
         cf.close ()
 
@@ -530,6 +563,9 @@ def main (stdscr) :
     curses.init_pair (UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair (DOWN_COLOR, curses.COLOR_RED, -1)
 
+    """
+    XXX: parsing and validating config file shoud be done before curses.wrapper.
+    """
 
     deadman = Deadman (stdscr, CONFIGFILE)
     deadman.main ()
