@@ -54,6 +54,11 @@ SSH_CONNECT_TIMEOUT = 3
 OSNAME = commands.getoutput ("uname -s")
 
 
+PING_FAILED = -1
+SSH_TIMEOUT = -2
+SSH_FAILED = -3
+
+
 class PingTarget :
 
     def __init__ (self, name, address, relay, ping) :
@@ -102,11 +107,15 @@ class PingTarget :
 
     def get_result_char (self, rtt) :
 
-        if rtt == -2 :
+        if rtt == SSH_TIMEOUT :
             # ssh timeout
             return "t"
 
-        if rtt == -1 :
+        if rtt == SSH_FAILED :
+            # ssh failed
+            return "s"
+
+        if rtt == PING_FAILED :
             # ping timeout
             return "X"
 
@@ -136,13 +145,13 @@ class PingTarget :
 
 class PingDarwin :
     """
-    XXX: PingOSNAME should be wrapped by super class.
+    XXX: PingOSNAME clsas should be wrapped by super class.
     and move ssh functionality to paramiko ?
     """
     def __init__ (self, addr, relay, timeout = 1) :
 
         self.addr = addr
-        self.ssh = None
+        self.relay = relay
 
         ipver = whichipversion (self.addr)
         if ipver == 4 :
@@ -162,25 +171,35 @@ class PingDarwin :
             return self.sendping6 ()
         raise
 
-    def sendping4 (self) :
-        pingcmd = "ping -W 1000 -c 1 %s" % self.addr
+    def sendping46 (self, pingcmdstr) :
+
+        sshcmd = ""
+        if self.relay :
+            sshcmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
+                      SSH_CONNECT_TIMEOUT)
+            if self.relay.has_key ("key") :
+                sshcmd += "-i %s " % self.relay["key"]
+            if self.relay.has_key ("user") :
+                sshcmd += "-l %s " % self.relay["user"]
+            sshcmd += "%s " % self.relay["relay"]
+
+        pingcmd = sshcmd + pingcmdstr + " %s" % self.addr
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
         if not m :
-            return -1
+            if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
+            if not re.search (r'PING', result) : return SSH_FAILED
+
+            return PING_FAILED
 
         (time, rttstr) = m.group (0).split ('=')
         return float (rttstr)
+
+    def sendping4 (self) :
+        return self.sendping46 ("ping -W 1000 -c 1")
 
     def sendping6 (self) :
-        pingcmd = "ping6 -c 1 %s" % self.addr
-        result = commands.getoutput (pingcmd)
-        m = re.search (r'time=\d+\.\d+', result)
-        if not m :
-            return -1
-
-        (time, rttstr) = m.group (0).split ('=')
-        return float (rttstr)
+        return self.sendping46 ("ping6 -i 1 -c 1")
 
 
 class PingLinux :
@@ -223,14 +242,16 @@ class PingLinux :
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
         if not m :
-            if re.search (r'Operation timed out', result) : return -2
-            return -1
+            if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
+            if not re.search (r'PING', result) : return SSH_FAILED
+
+            return PING_FAILED
 
         (time, rttstr) = m.group (0).split ('=')
         return float (rttstr)
 
     def sendping4 (self) :
-        return self.sendping46 ("ping -W 1000 -c 1")
+        return self.sendping46 ("ping -W 1 -c 1")
 
     def sendping6 (self) :
         return self.sendping46 ("ping6 -W 1 -c 1")
@@ -400,7 +421,7 @@ class CursesCtrl () :
 
 
         for n in range (len (target.result)) :
-            if target.result[n] != "X" and target.result[n] != "t" :
+            if target.result[n] != "X" and target.result[n] != "t" and target.result[n] != "s":
                 color = curses.color_pair (UP_COLOR)
             else :
                 color = curses.color_pair (DOWN_COLOR)
