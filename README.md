@@ -38,7 +38,7 @@ For example,
 
 this line means sending ping to a google server via remote server X.X.X.X.
 username and ssh-key for remote host can be specified by _user=USER_,
-_key=KEYPATH_. Other ssh attributes follow user's environment running
+_key=KEYPATH_. Other ssh attributes follow user's environment executing
 deadman.
 
 
