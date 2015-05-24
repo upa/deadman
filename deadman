@@ -145,7 +145,7 @@ class PingTarget :
 
 class PingDarwin :
     """
-    XXX: PingOSNAME clsas should be wrapped by super class.
+    XXX: PingOSNAME class should be wrapped by super class.
     and move ssh functionality to paramiko ?
     """
     def __init__ (self, addr, relay, timeout = 1) :
@@ -181,6 +181,9 @@ class PingDarwin :
                 sshcmd += "-i %s " % self.relay["key"]
             if self.relay.has_key ("user") :
                 sshcmd += "-l %s " % self.relay["user"]
+            if not self.relay.has_key ("relay") :
+                raise RuntimeError ("\"relay\" is not specified for %s" %
+                                    self.addr)
             sshcmd += "%s " % self.relay["relay"]
 
         pingcmd = sshcmd + pingcmdstr + " %s" % self.addr
@@ -236,6 +239,9 @@ class PingLinux :
                 sshcmd += "-i %s " % self.relay["key"]
             if self.relay.has_key ("user") :
                 sshcmd += "-l %s " % self.relay["user"]
+            if not self.relay.has_key ("relay") :
+                raise RuntimeError ("\"relay\" is not specified for %s" %
+                                    self.addr)
             sshcmd += "%s " % self.relay["relay"]
 
         pingcmd = sshcmd + pingcmdstr + " %s" % self.addr
