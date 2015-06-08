@@ -16,6 +16,7 @@ import socket
 import curses
 import thread
 import locale
+import datetime
 from optparse import OptionParser
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
@@ -58,6 +59,7 @@ PING_FAILED = -1
 SSH_TIMEOUT = -2
 SSH_FAILED = -3
 
+logdir = ""
 
 class PingTarget :
 
@@ -189,6 +191,9 @@ class PingDarwin :
         pingcmd = sshcmd + pingcmdstr + " %s" % self.addr
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
+		
+        if not m:
+            m = re.search (r'time=\d+', result)
         if not m :
             if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
             if not re.search (r'PING', result) : return SSH_FAILED
@@ -441,8 +446,16 @@ class CursesCtrl () :
         y, x = self.stdscr.getmaxyx()
         self.waddstr (linenum, x - len (REAR), REAR)
 
+        if logdir != "":
+            filepath = "logs/" + target.name
+            f = open(filepath, 'a')
+            fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
+            f.write(fline)
+            f.close()
+
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
+
         return
 
     def print_arrow (self, number) :
@@ -620,6 +633,10 @@ if __name__ == '__main__' :
         '-s', '--scale', type = "int", default = 10, dest = 'scale',
         help = 'scale of ping RTT bar gap.'
     )
+    parser.add_option (
+        '-l', '--logging', type = "string", default = "logs", dest = 'logdir',
+        help = 'logging.'
+    )
 
     (options, args) = parser.parse_args ()
 
@@ -627,7 +644,7 @@ if __name__ == '__main__' :
     try :
         CONFIGFILE = args.pop ()
     except :
-        print "config file is not specified. deadman [-s scale] configfile"
+        print "config file is not specified. deadman [-s scale] [-l logdir] configfile"
         sys.exit ()
 
     curses.wrapper (main)
