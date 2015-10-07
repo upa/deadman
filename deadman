@@ -529,7 +529,7 @@ def pingcmdstrings (osname, ipv) :
 
     # XXX : add new osname (uname -s) to support new OS.
     if osname == "Linux" :
-        if ipv == 4 : return "ping -W 1000 -c 1"
+        if ipv == 4 : return "ping -W 1 -c 1"
         if ipv == 6 : return "ping6 -i 1 -c 1"
     elif osname == "Darwin" :
         if ipv == 4 : return "ping -W 1000 -c 1"
