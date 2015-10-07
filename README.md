@@ -45,7 +45,7 @@ deadman.
 Copyright
 =========
 
-2015 Interop Tokyo ShowNet team All Rights Reserved.
+2015 Interop Tokyo ShowNet team.
 
 
 Contact
