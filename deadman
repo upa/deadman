@@ -447,7 +447,9 @@ class CursesCtrl () :
         self.waddstr (linenum, x - len (REAR), REAR)
 
         if logdir != "":
-            filepath = "logs/" + target.name
+            filepath = logdir + "/" + target.name
+            if os.path.isdir(logdir) == False:
+                os.makedirs(logdir)
             f = open(filepath, 'a')
             fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
             f.write(fline)
@@ -641,6 +643,7 @@ if __name__ == '__main__' :
     (options, args) = parser.parse_args ()
 
     RTT_SCALE = options.scale
+    logdir    = options.logdir
     try :
         CONFIGFILE = args.pop ()
     except :
