@@ -387,14 +387,7 @@ class CursesCtrl () :
             f.write(fline)
             f.close()
         else :
-            filepath = logs + "/" + target.name
-            if os.path.isdir(logs) == False:
-              os.makedirs(logs)
-            f = open(filepath, 'a')
-            fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
-            f.write(fline)
-            f.close()
-            
+            pass 
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
