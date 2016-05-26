@@ -49,7 +49,6 @@ DOWN_COLOR = 3
 RTT_SCALE = 10
 CONFIGFILE = "deadman.conf"
 
-
 SSH_CONNECT_TIMEOUT = 3
 
 OSNAME = commands.getoutput ("uname -s")
@@ -378,21 +377,23 @@ class CursesCtrl () :
 
         y, x = self.stdscr.getmaxyx()
         self.waddstr (linenum, x - len (REAR), REAR)
-
-        if logdir != "":
-            filepath = logdir + "/" + target.name
-            if os.path.isdir(logdir) == False:
-                os.makedirs(logdir)
+        
+        if "-l" in sys.argv:
+            filepath = LOGDIR + "/" + target.name
+            if os.path.isdir(LOGDIR) == False:
+              os.makedirs(LOGDIR)
             f = open(filepath, 'a')
             fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
             f.write(fline)
             f.close()
+        else:
+            pass
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
 
         return
-
+        
     def print_arrow (self, number) :
         linenum = number + TITLE_VERTIC_LENGTH
 
@@ -566,7 +567,6 @@ if __name__ == '__main__' :
         print ("%s is not supported" % OSNAME)
         sys.exit (0)
 
-
     desc = "usage : %prog [options] configfile"
     parser = OptionParser (desc)
 
@@ -580,9 +580,10 @@ if __name__ == '__main__' :
     )
 
     (options, args) = parser.parse_args ()
-
+    
     RTT_SCALE = options.scale
-    logdir    = options.logdir
+    LOGDIR    = options.logdir
+
     try :
         CONFIGFILE = args.pop ()
     except :
