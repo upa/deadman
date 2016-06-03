@@ -63,7 +63,7 @@ logdir = ""
 
 class PingTarget :
 
-    def __init__ (self, name, address, relay, osname) :
+    def __init__ (self, name, address, osname, relay = None, source = None) :
 
         self.name = name
         self.addr = address
@@ -77,7 +77,8 @@ class PingTarget :
         self.snt = 0 # number of sent ping
         self.result = []
 
-        self.ping = Ping (self.addr, relay, osname)
+        self.ping = Ping (self.addr, osname, relay = relay,
+                          source = source)
 
         return
 
@@ -147,12 +148,15 @@ class PingTarget :
 
 class Ping :
 
-    def __init__ (self, addr, relay, osname, timeout = 1) :
+    def __init__ (self, addr, osname, timeout = 1, relay = None,
+                  source = None) :
 
         # XXX: 'timeout' must overwrite pingcmdstr -W or -i options
 
         self.addr = addr
+        self.osname = osname
         self.relay = relay
+        self.source = source
 
         ipv = whichipversion (self.addr)
         if ipv == 4 :
@@ -171,6 +175,7 @@ class Ping :
     def send (self) :
 
         sshcmd = ""
+        sourcecmd = ""
         if self.relay :
             sshcmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
                       SSH_CONNECT_TIMEOUT)
@@ -183,7 +188,15 @@ class Ping :
                                     self.addr)
             sshcmd += "%s " % self.relay["relay"]
 
-        pingcmd = sshcmd + self.pingcmdstr + " %s" % self.addr
+        if self.source :
+            if self.osname == "Linux" :
+                sourcecmd += " %s " % ("-I %s" % self.source)
+            if self.osname == "Darwin" :
+                sourcecmd += " %s " % ("-S %s" % self.source)
+            else :
+                raise
+
+        pingcmd = sshcmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
         result = commands.getoutput (pingcmd)
         m = re.search (r'time=\d+\.\d+', result)
 		
@@ -191,8 +204,9 @@ class Ping :
             m = re.search (r'time=\d+', result)
 
         if not m :
-            if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
             if re.search (r'ping', result) : return PING_FAILED
+            if re.search (r'No route to host', result) : return PING_FAILED
+            if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
             if not re.search (r'PING', result) : return SSH_FAILED
 
             return PING_FAILED
@@ -430,12 +444,14 @@ class Deadman :
         self.curs = CursesCtrl (stdscr)
         self.targetlist = self.gettargetlist (configfile)
 
-        for name, addr, relay in self.targetlist :
+        for name, addr, relay, source in self.targetlist :
             if relay.has_key ("os") :
-                self.targets.append (PingTarget (name, addr, relay,
-                                                 relay['os']))
+                osname = relay['os']
             else :
-                self.targets.append (PingTarget (name, addr, relay, OSNAME))
+                osname = OSNAME
+
+            self.targets.append (PingTarget (name, addr, osname,
+                                             relay = relay, source = source))
 
         self.curs.update_info (self.targets)
 
@@ -502,12 +518,16 @@ class Deadman :
             ss = line.split (' ')
             name = ss.pop (0)
             addr = ss.pop (0)
+            source = None
             relay = {}
             for s in ss :
-                a, v = s.split ("=")
-                relay[a] = v
+                key, value = s.split ("=")
+                if key == "os" or key == "relay":
+                    relay[key] = value
+                elif key == "source" :
+                    source = value
 
-            targetlist.append ([name, addr, relay])
+            targetlist.append ([name, addr, relay, source])
 
         cf.close ()
 
