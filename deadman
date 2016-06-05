@@ -23,7 +23,7 @@ locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Dead Man"
-TITLE_VERSION = "[ver 15.10.7]"
+TITLE_VERSION = "[ver 16.06.5]"
 TITLE_VERTIC_LENGTH = 4
 
 try :
