@@ -54,11 +54,23 @@ SSH_CONNECT_TIMEOUT = 3
 OSNAME = commands.getoutput ("uname -s")
 
 
-PING_FAILED = -1
-SSH_TIMEOUT = -2
-SSH_FAILED = -3
+PING_SUCCESS      = 0
+PING_FAILED       = -1
+PING_SSH_TIMEOUT  = -2
+PING_SSH_FAILED   = -3
 
-logdir = ""
+LOGDIR = ""
+
+class PingResult :
+
+    def __init__ (self, success = False, errcode = PING_FAILED,
+                  rtt = 0.0, ttl = 0) :
+        self.success = success
+        self.errcode = errcode
+        self.rtt = rtt
+        self.ttl = ttl
+        return
+    
 
 class PingTarget :
 
@@ -74,6 +86,7 @@ class PingTarget :
         self.tot = 0 # total of all RTT
         self.avg = 0 # average of all RTT
         self.snt = 0 # number of sent ping
+        self.ttl = 0 # last ttl
         self.result = []
 
         self.ping = Ping (self.addr, osname, relay = relay,
@@ -87,14 +100,15 @@ class PingTarget :
 
         self.snt += 1
 
-        if res >= 0 :
+        if res.success :
             # Ping Success
             self.state = True
-            self.rtt = res
-            self.tot += res
+            self.rtt = res.rtt
+            self.tot += res.rtt
             self.avg = (self.tot) / self.snt
+            self.ttl = res.ttl
 
-        elif res < 0 :
+        else :
             # Ping Failed
             self.loss += 1
             self.state = False
@@ -107,27 +121,27 @@ class PingTarget :
 
         return
 
-    def get_result_char (self, rtt) :
+    def get_result_char (self, res) :
 
-        if rtt == SSH_TIMEOUT :
+        if res.errcode == PING_SSH_TIMEOUT :
             # ssh timeout
             return "t"
 
-        if rtt == SSH_FAILED :
+        if res.errcode == PING_SSH_FAILED :
             # ssh failed
             return "s"
 
-        if rtt == PING_FAILED :
+        if res.errcode == PING_FAILED :
             # ping timeout
             return "X"
 
-        if rtt < RTT_SCALE * 1 : return "▁"
-        if rtt < RTT_SCALE * 2 : return "▂"
-        if rtt < RTT_SCALE * 3 : return "▃"
-        if rtt < RTT_SCALE * 4 : return "▄"
-        if rtt < RTT_SCALE * 5 : return "▅"
-        if rtt < RTT_SCALE * 6 : return "▆"
-        if rtt < RTT_SCALE * 7 : return "▇"
+        if res.rtt < RTT_SCALE * 1 : return "▁"
+        if res.rtt < RTT_SCALE * 2 : return "▂"
+        if res.rtt < RTT_SCALE * 3 : return "▃"
+        if res.rtt < RTT_SCALE * 4 : return "▄"
+        if res.rtt < RTT_SCALE * 5 : return "▅"
+        if res.rtt < RTT_SCALE * 6 : return "▆"
+        if res.rtt < RTT_SCALE * 7 : return "▇"
 
         return "█"
 
@@ -140,6 +154,7 @@ class PingTarget :
         self.tot = 0
         self.avg = 0
         self.snt = 0
+        self.ttl = 0
         self.result = []
 
         return
@@ -197,21 +212,40 @@ class Ping :
 
         pingcmd = sshcmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
         result = commands.getoutput (pingcmd)
-        m = re.search (r'time=\d+\.\d+', result)
 
-        if not m:
-            m = re.search (r'time=\d+', result)
+        rttm = re.search (r'time=\d+\.\d+', result)
+        if not rttm:
+            rttm = re.search (r'time=\d+', result)
 
-        if not m :
-            if re.search (r'ping', result) : return PING_FAILED
-            if re.search (r'No route to host', result) : return PING_FAILED
-            if re.search (r'Operation timed out', result) : return SSH_TIMEOUT
-            if not re.search (r'PING', result) : return SSH_FAILED
+        ttlm = re.search (r'ttl=\d+', result)
+        if not ttlm:
+            ttlm = re.search (r'hlim=\d+', result)
 
-            return PING_FAILED
+        res = PingResult ()
 
-        (time, rttstr) = m.group (0).split ('=')
-        return float (rttstr)
+        if rttm :
+            res.success = True
+            res.errcode = PING_SUCCESS
+            res.rtt = float (rttm.group (0).split ('=')[1])
+            if ttlm :
+                res.ttl = int (ttlm.group (0).split ('=')[1])
+            else :
+                res.ttl = -1
+
+        if not rttm :
+            res.sucess = False
+            if re.search (r'ping', result) :
+                res.errcode = PING_FAILED
+            if re.search (r'No route to host', result) :
+                res.errcode = PING_FAILED
+            if re.search (r'Operation timed out', result) :
+                res.errcode = PING_SSH_TIMEOUT
+            if not re.search (r'PING', result) :
+                res.errcode = PING_SSH_FAILED
+
+            res.errcode = PING_FAILED
+
+        return res
 
 
 class CursesCtrl () :
@@ -264,7 +298,7 @@ class CursesCtrl () :
 
         # update reference
         self.ref_start = self.start_address + self.length_address + 1
-        self.ref_length = len (" LOSS  RTT  AVG  SNT")
+        self.ref_length = len (" LOSS  TTL  RTT  AVG  SNT")
 
         # update result
         self.res_start = self.ref_start + self.ref_length + 2
@@ -330,17 +364,17 @@ class CursesCtrl () :
     def print_reference (self) :
         hostname_str = "HOSTNAME"
         address_str = "ADDRESS"
-        values_str = " LOSS  RTT  AVG  SNT  RESULT"
+        values_str = " LOSS  TTL  RTT  AVG  SNT  RESULT"
 
         # Print reference hostname and address
         self.waddstr (TITLE_VERTIC_LENGTH, len (ARROW),
-                            hostname_str, curses.A_BOLD)
+                      hostname_str, curses.A_BOLD)
         self.waddstr (TITLE_VERTIC_LENGTH, self.start_address,
-                            address_str, curses.A_BOLD)
+                      address_str, curses.A_BOLD)
 
         # Print references of values
         self.waddstr (TITLE_VERTIC_LENGTH, self.ref_start,
-                            values_str, curses.A_BOLD)
+                      values_str, curses.A_BOLD)
 
         self.stdscr.move (0, 0)
         self.stdscr.refresh ()
@@ -363,10 +397,11 @@ class CursesCtrl () :
         linenum = number + TITLE_VERTIC_LENGTH
 
         # Print values
-        values_str = " %3d%% %4d %4d %4d  " % (int(target.lossrate),
-                                               target.rtt,
-                                               target.avg,
-                                               target.snt)
+        values_str = " %3d%% %4d %4d %4d %4d  " % (int(target.lossrate),
+                                                   target.ttl,
+                                                   target.rtt,
+                                                   target.avg,
+                                                   target.snt)
 
         # Print ping line
         self.waddstr (linenum, self.start_hostname,
