@@ -205,7 +205,7 @@ class Ping :
         if self.source :
             if self.osname == "Linux" :
                 sourcecmd += " %s " % ("-I %s" % self.source)
-            if self.osname == "Darwin" :
+            elif self.osname == "Darwin" :
                 sourcecmd += " %s " % ("-S %s" % self.source)
             else :
                 raise
