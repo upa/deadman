@@ -190,7 +190,13 @@ class Ping :
 
         sshcmd = ""
         sourcecmd = ""
+        if self.relay and self.relay.has_key("via") \
+           and self.relay["via"] == "snmp" :
+            ## SNMP
+            return self.sendSnmpPing()
+
         if self.relay :
+            ## SSH
             sshcmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
                       SSH_CONNECT_TIMEOUT)
             if self.relay.has_key ("key") :
@@ -211,6 +217,7 @@ class Ping :
                 raise
 
         pingcmd = sshcmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
+
         result = commands.getoutput (pingcmd)
 
         rttm = re.search (r'time=\d+\.\d+', result)
@@ -243,6 +250,39 @@ class Ping :
             if not re.search (r'PING', result) :
                 res.errcode = PING_SSH_FAILED
 
+            res.errcode = PING_FAILED
+
+        return res
+
+    def sendSnmpPing (self) :
+        if not self.relay.has_key("community") :
+            raise RuntimeError ("\"community\" is not specified for %s" %
+                                self.addr)
+        community = self.relay["community"]
+        community = community.replace("\\", "\\\\")
+        community = community.replace("'", "\\'")
+        snmpcmd = "snmpping -Cc1 -v 2c -c \'%s\' " % community
+        if not self.relay.has_key("relay") :
+            raise RuntimeError ("\"relay\" is not specified for %s" %
+                                self.addr)
+        snmpcmd += " %s " % self.relay["relay"]
+
+        pingcmd = snmpcmd + " %s" % self.addr
+
+        result = commands.getoutput (pingcmd)
+
+        rttm = re.search (r'rtt min/avg/max/stddev = \d+', result)
+
+        res = PingResult ()
+
+        if rttm :
+            res.success = True
+            res.errcode = PING_SUCCESS
+            res.rtt = float (rttm.group (0).split ('=')[1])
+            res.ttl = -1
+
+        if not rttm :
+            res.sucess = False
             res.errcode = PING_FAILED
 
         return res
@@ -558,7 +598,7 @@ class Deadman :
             relay = {}
             for s in ss :
                 key, value = s.split ("=")
-                if key == "os" or key == "relay":
+                if key in ("os", "relay", "via", "community") :
                     relay[key] = value
                 elif key == "source" :
                     source = value
