@@ -23,7 +23,7 @@ locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Dead Man"
-TITLE_VERSION = "[ver 16.09.20]"
+TITLE_VERSION = "[ver 16.11.11]"
 TITLE_VERTIC_LENGTH = 4
 
 try :
@@ -220,22 +220,22 @@ class Ping :
 
         result = commands.getoutput (pingcmd)
 
-        rttm = re.search (r'time=\d+\.\d+', result)
+        rttm = re.search (r'time=(\d+\.\d+)', result)
         if not rttm:
-            rttm = re.search (r'time=\d+', result)
+            rttm = re.search (r'time=(\d+)', result)
 
-        ttlm = re.search (r'ttl=\d+', result)
+        ttlm = re.search (r'ttl=(\d+)', result)
         if not ttlm:
-            ttlm = re.search (r'hlim=\d+', result)
+            ttlm = re.search (r'hlim=(\d+)', result)
 
         res = PingResult ()
 
         if rttm :
             res.success = True
             res.errcode = PING_SUCCESS
-            res.rtt = float (rttm.group (0).split ('=')[1])
+            res.rtt = float (rttm.group (1))
             if ttlm :
-                res.ttl = int (ttlm.group (0).split ('=')[1])
+                res.ttl = int (ttlm.group (1))
             else :
                 res.ttl = -1
 
@@ -271,14 +271,14 @@ class Ping :
 
         result = commands.getoutput (pingcmd)
 
-        rttm = re.search (r'rtt min/avg/max/stddev = \d+', result)
+        rttm = re.search (r'rtt min/avg/max/stddev = (\d+)', result)
 
         res = PingResult ()
 
         if rttm :
             res.success = True
             res.errcode = PING_SUCCESS
-            res.rtt = float (rttm.group (0).split ('=')[1])
+            res.rtt = float (rttm.group (1))
             res.ttl = -1
 
         if not rttm :
