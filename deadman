@@ -179,7 +179,8 @@ class Ping :
             self.ipversion = 6
         else :
             self.ipversion = -1
-            raise RuntimeError ("invalid IP address \"%s\"" % self.addr)
+            print ("invalid IP address \"%s\"" % self.addr)
+            raise
 
         self.pingcmdstr = pingcmdstrings (osname, ipv)
 
@@ -213,8 +214,7 @@ class Ping :
             elif self.osname == "Darwin" :
                 sourcecmd += " %s " % ("-S %s" % self.source)
             else :
-                raise RuntimeError ("\"source\" not supported on %s" %
-                                    self.osname)
+                raise
 
         pingcmd = sshcmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
 
