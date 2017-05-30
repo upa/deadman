@@ -187,25 +187,29 @@ class Ping :
 
     def send (self) :
 
-        sshcmd = ""
+        viacmd = ""
         sourcecmd = ""
-        if self.relay and self.relay.has_key("via") \
-           and self.relay["via"] == "snmp" :
-            ## SNMP
-            return self.sendSnmpPing()
+        if self.relay and self.relay.has_key("via") :
+            if self.relay["via"] == "snmp" :
+                ## SNMP
+                return self.sendSnmpPing()
 
-        if self.relay :
+            if self.relay["via"] == "netns" :
+                ## ping via Network Namespace
+                viacmd = "ip netns exec %s " % self.relay["relay"]
+
+        elif self.relay :
             ## SSH
-            sshcmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
+            viacmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
                       SSH_CONNECT_TIMEOUT)
             if self.relay.has_key ("key") :
-                sshcmd += "-i %s " % self.relay["key"]
+                viacmd += "-i %s " % self.relay["key"]
             if self.relay.has_key ("user") :
-                sshcmd += "-l %s " % self.relay["user"]
+                viacmd += "-l %s " % self.relay["user"]
             if not self.relay.has_key ("relay") :
                 raise RuntimeError ("\"relay\" is not specified for %s" %
                                     self.addr)
-            sshcmd += "%s " % self.relay["relay"]
+            viacmd += "%s " % self.relay["relay"]
 
         if self.source :
             if self.osname == "Linux" :
@@ -216,7 +220,7 @@ class Ping :
                 raise RuntimeError ("\"source\" not supported on %s" %
                                     self.osname)
 
-        pingcmd = sshcmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
+        pingcmd = viacmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
 
         result = commands.getoutput (pingcmd)
 
@@ -598,7 +602,7 @@ class Deadman :
             relay = {}
             for s in ss :
                 key, value = s.split ("=")
-                if key in ("os", "relay", "via", "community") :
+                if key in ("os", "relay", "via", "community", "netns") :
                     relay[key] = value
                 elif key == "source" :
                     source = value
