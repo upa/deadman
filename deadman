@@ -602,7 +602,7 @@ class Deadman :
             relay = {}
             for s in ss :
                 key, value = s.split ("=")
-                if key in ("os", "relay", "via", "community", "netns") :
+                if key in ("os", "relay", "via", "community", "netns", "user") :
                     relay[key] = value
                 elif key == "source" :
                     source = value
