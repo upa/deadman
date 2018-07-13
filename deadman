@@ -80,6 +80,7 @@ class PingTarget :
         self.name = name
         self.addr = address
         self.relay = relay
+        self.source = source
         self.state = False
         self.loss = 0
         self.lossrate = 0.0
@@ -94,6 +95,17 @@ class PingTarget :
                           source = source)
 
         return
+
+    def __str__ (self) :
+        s = [self.name, self.addr]
+        if self.relay :
+            s.append (self.relay)
+        if self.source :
+            s.append (self.source)
+        return ':'.join (s)
+
+    def __eq__ (self, other) :
+        return str(self) == str(other)
 
     def send (self) :
 
@@ -523,6 +535,7 @@ class Deadman :
 
         self.curs = CursesCtrl (stdscr)
         self.configfile = configfile
+        self.targets = []
 
         self.addtargets ()
 
@@ -534,7 +547,7 @@ class Deadman :
         return
 
     def addtargets (self) :
-        self.targets = []
+        newtargets = []
         self.targetlist = self.gettargetlist (self.configfile)
 
         for name, addr, relay, source in self.targetlist :
@@ -543,9 +556,16 @@ class Deadman :
             else :
                 osname = OSNAME
 
-            self.targets.append (PingTarget (name, addr, osname,
-                                             relay = relay, source = source))
+            pt = PingTarget (name, addr, osname,
+                             relay = relay, source = source)
+            idx = -1
+            if pt in self.targets :
+                idx = self.targets.index (pt)
+                newtargets.append (self.targets[idx])
+            else:
+                newtargets.append (pt)
 
+        self.targets = newtargets
         self.curs.update_info (self.targets)
 
     def main (self) :
@@ -585,7 +605,7 @@ class Deadman :
 
     def updatetargets (self, signum, frame) :
         self.addtargets ()
-        
+ 
     def gettargetlist (self, configfile) :
 
         try :
