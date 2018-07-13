@@ -17,6 +17,7 @@ import curses
 import thread
 import locale
 import datetime
+import signal
 from optparse import OptionParser
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
@@ -520,9 +521,21 @@ class Deadman :
 
     def __init__ (self, stdscr, configfile) :
 
-        self.targets = []
         self.curs = CursesCtrl (stdscr)
-        self.targetlist = self.gettargetlist (configfile)
+        self.configfile = configfile
+
+        self.addtargets ()
+
+        signal.signal(signal.SIGHUP, self.updatetargets)
+        signal.siginterrupt(signal.SIGHUP, False)
+
+        self.curs.print_title ()
+
+        return
+
+    def addtargets (self) :
+        self.targets = []
+        self.targetlist = self.gettargetlist (self.configfile)
 
         for name, addr, relay, source in self.targetlist :
             if relay.has_key ("os") :
@@ -534,11 +547,6 @@ class Deadman :
                                              relay = relay, source = source))
 
         self.curs.update_info (self.targets)
-
-        self.curs.print_title ()
-
-        return
-
 
     def main (self) :
 
@@ -575,6 +583,9 @@ class Deadman :
             self.curs.erase_pingtarget (num + 1)
 
 
+    def updatetargets (self, signum, frame) :
+        self.addtargets ()
+        
     def gettargetlist (self, configfile) :
 
         try :
