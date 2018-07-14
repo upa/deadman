@@ -17,6 +17,7 @@ import curses
 import thread
 import locale
 import datetime
+import signal
 from optparse import OptionParser
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
@@ -79,6 +80,7 @@ class PingTarget :
         self.name = name
         self.addr = address
         self.relay = relay
+        self.source = source
         self.state = False
         self.loss = 0
         self.lossrate = 0.0
@@ -93,6 +95,17 @@ class PingTarget :
                           source = source)
 
         return
+
+    def __str__ (self) :
+        s = [self.name, self.addr]
+        if self.relay :
+            s.append (self.relay)
+        if self.source :
+            s.append (self.source)
+        return ':'.join (s)
+
+    def __eq__ (self, other) :
+        return str(self) == str(other)
 
     def send (self) :
 
@@ -520,9 +533,22 @@ class Deadman :
 
     def __init__ (self, stdscr, configfile) :
 
-        self.targets = []
         self.curs = CursesCtrl (stdscr)
-        self.targetlist = self.gettargetlist (configfile)
+        self.configfile = configfile
+        self.targets = []
+
+        self.addtargets ()
+
+        signal.signal(signal.SIGHUP, self.updatetargets)
+        signal.siginterrupt(signal.SIGHUP, False)
+
+        self.curs.print_title ()
+
+        return
+
+    def addtargets (self) :
+        newtargets = []
+        self.targetlist = self.gettargetlist (self.configfile)
 
         for name, addr, relay, source in self.targetlist :
             if relay.has_key ("os") :
@@ -530,15 +556,17 @@ class Deadman :
             else :
                 osname = OSNAME
 
-            self.targets.append (PingTarget (name, addr, osname,
-                                             relay = relay, source = source))
+            pt = PingTarget (name, addr, osname,
+                             relay = relay, source = source)
+            idx = -1
+            if pt in self.targets :
+                idx = self.targets.index (pt)
+                newtargets.append (self.targets[idx])
+            else:
+                newtargets.append (pt)
 
+        self.targets = newtargets
         self.curs.update_info (self.targets)
-
-        self.curs.print_title ()
-
-        return
-
 
     def main (self) :
 
@@ -575,6 +603,9 @@ class Deadman :
             self.curs.erase_pingtarget (num + 1)
 
 
+    def updatetargets (self, signum, frame) :
+        self.addtargets ()
+ 
     def gettargetlist (self, configfile) :
 
         try :
