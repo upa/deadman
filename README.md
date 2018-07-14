@@ -41,6 +41,9 @@ username and ssh-key for remote host can be specified by _user=USER_,
 _key=KEYPATH_. Other ssh attributes follow user's environment executing
 deadman.
 
+You can send deadman a SIGHUP to have it reload its configuration file.
+When this happens, existing entries will not lose their history.
+
 
 Copyright
 =========
