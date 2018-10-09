@@ -3,9 +3,11 @@ deadman
 
 deadman is, an observation software for host status using ping.
 
-deadman does not have rich functionalities. It only checks the host 
-status using ICMP echo. We recomend using deadman for building temporary 
-networks such as conference and event networks.
+deadman does not have rich functionalities. It only checks the host
+status using ICMP echo. We recomend using deadman for building
+temporary networks such as conference and event networks. This
+software was originally designed and implemented for Interop Tokyo
+ShowNet.
 
 
 ![demo](https://github.com/upa/deadman/raw/master/img/deadman-demo.gif)
@@ -45,10 +47,10 @@ You can send deadman a SIGHUP to have it reload its configuration file.
 When this happens, existing entries will not lose their history.
 
 
-Copyright
-=========
+License
+=======
 
-Interop Tokyo ShowNet team.
+MIT
 
 
 Contact
