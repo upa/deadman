@@ -11,14 +11,27 @@ import re
 import os
 import sys
 import time
-import commands
 import socket
 import curses
-import thread
 import locale
 import datetime
 import signal
 from optparse import OptionParser
+
+# Python3 doesn't have commands module anymore
+# Python2 already has subprocess, but Python2's
+# subprocess doesn't provide getoutput
+try:
+    from commands import getoutput
+except ImportError:
+    from subprocess import getoutput
+
+# Python3 provides the lowlevel threading api
+# which Python2 exposed as _thread
+try:
+    import thread
+except ImportError:
+    import _thread as thread
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
@@ -29,10 +42,10 @@ TITLE_VERTIC_LENGTH = 4
 
 try :
     TITLE_HOSTINFO = "From: %s (%s)" % (
-        commands.getoutput ("hostname"),
-        socket.gethostbyname (commands.getoutput ("hostname")))
+        getoutput ("hostname"),
+        socket.gethostbyname (getoutput ("hostname")))
 except :
-    TITLE_HOSTINFO = "From: %s" % commands.getoutput ("hostname")
+    TITLE_HOSTINFO = "From: %s" % getoutput ("hostname")
 
 
 ARROW = " > "
@@ -52,7 +65,7 @@ CONFIGFILE = "deadman.conf"
 
 SSH_CONNECT_TIMEOUT = 3
 
-OSNAME = commands.getoutput ("uname -s")
+OSNAME = getoutput ("uname -s")
 
 
 PING_SUCCESS      = 0
@@ -202,7 +215,7 @@ class Ping :
 
         viacmd = ""
         sourcecmd = ""
-        if self.relay and self.relay.has_key("via") :
+        if self.relay and "via" in self.relay :
             if self.relay["via"] == "snmp" :
                 ## SNMP
                 return self.sendSnmpPing()
@@ -215,11 +228,11 @@ class Ping :
             ## SSH
             viacmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
                       SSH_CONNECT_TIMEOUT)
-            if self.relay.has_key ("key") :
+            if "key" in self.relay :
                 viacmd += "-i %s " % self.relay["key"]
-            if self.relay.has_key ("user") :
+            if "user" in self.relay :
                 viacmd += "-l %s " % self.relay["user"]
-            if not self.relay.has_key ("relay") :
+            if "relay" not in self.relay :
                 raise RuntimeError ("\"relay\" is not specified for %s" %
                                     self.addr)
             viacmd += "%s " % self.relay["relay"]
@@ -235,7 +248,7 @@ class Ping :
 
         pingcmd = viacmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
 
-        result = commands.getoutput (pingcmd)
+        result = getoutput (pingcmd)
 
         rttm = re.search (r'time=(\d+\.\d+)', result)
         if not rttm:
@@ -272,21 +285,21 @@ class Ping :
         return res
 
     def sendSnmpPing (self) :
-        if not self.relay.has_key("community") :
+        if "community" not in self.relay :
             raise RuntimeError ("\"community\" is not specified for %s" %
                                 self.addr)
         community = self.relay["community"]
         community = community.replace("\\", "\\\\")
         community = community.replace("'", "\\'")
         snmpcmd = "snmpping -Cc1 -v 2c -c \'%s\' " % community
-        if not self.relay.has_key("relay") :
+        if "relay" not in self.relay :
             raise RuntimeError ("\"relay\" is not specified for %s" %
                                 self.addr)
         snmpcmd += " %s " % self.relay["relay"]
 
         pingcmd = snmpcmd + " %s" % self.addr
 
-        result = commands.getoutput (pingcmd)
+        result = getoutput (pingcmd)
 
         rttm = re.search (r'rtt min/avg/max/stddev = (\d+)', result)
 
@@ -551,10 +564,7 @@ class Deadman :
         self.targetlist = self.gettargetlist (self.configfile)
 
         for name, addr, relay, source in self.targetlist :
-            if relay.has_key ("os") :
-                osname = relay['os']
-            else :
-                osname = OSNAME
+            osname = relay.get('os', OSNAME)
 
             pt = PingTarget (name, addr, osname,
                              relay = relay, source = source)
@@ -717,7 +727,7 @@ if __name__ == '__main__' :
     try :
         CONFIGFILE = args.pop ()
     except :
-        print "config file is not specified. deadman [-s scale] [-l logdir] configfile"
+        sys.stderr.write ("config file is not specified. deadman [-s scale] [-l logdir] configfile\n")
         sys.exit ()
 
     try :
