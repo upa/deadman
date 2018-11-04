@@ -588,7 +588,8 @@ class Deadman :
 
             line = re.sub ('\t', ' ', line)
             line = re.sub ('\s+', ' ', line)
-            line = re.sub ('#.*', '', line)
+            line = re.sub ('^#.*', '', line)
+            line = re.sub (';\s*#', '', line)
             line = line.strip (' \r\n')
             line = line.rstrip (' \r\n')
 
