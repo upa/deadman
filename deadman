@@ -502,7 +502,7 @@ class CursesCtrl () :
             if os.path.isdir(LOGDIR) == False:
                 os.makedirs(LOGDIR)
             f = open(filepath, 'a')
-            fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
+            fline = str(datetime.datetime.now()) + " " + str(int(target.state)) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
             f.write(fline)
             f.close()
         else :
