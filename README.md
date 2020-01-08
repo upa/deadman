@@ -1,10 +1,10 @@
 deadman
 =======
 
-deadman is, an observation software for host status using ping.
+deadman is an observation software for host status using ping.
 
-deadman does not have rich functionalities. It only checks the host
-status using ICMP echo. We recomend using deadman for building
+deadman does not have rich functionalities. It only checks host
+statuses using ICMP echo. We recomend using deadman for building
 temporary networks such as conference and event networks. This
 software was originally designed and implemented for Interop Tokyo
 ShowNet.
@@ -15,7 +15,7 @@ ShowNet.
 how to use
 ==========
 
-At first, write a config file like below.
+First, write a config file like below.
 
 	% cat deadman.conf
 	google          173.194.117.176
@@ -23,8 +23,8 @@ At first, write a config file like below.
 	kame            203.178.141.194
 	kame6           2001:200:dff:fff1:216:3eff:feb1:44d7
 
-A line on the config file indicates an observed host.
-IPv6 address is naturally supported.
+A line on the config file indicates an observed host.  IPv6 address is
+naturally supported.
 
 then,
 
