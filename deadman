@@ -27,11 +27,11 @@ TITLE_PROGNAME = "Dead Man"
 TITLE_VERSION = "[ver 20.01.08]"
 TITLE_VERTIC_LENGTH = 4
 
-try :
+try:
     TITLE_HOSTINFO = "From: %s (%s)" % (
         subprocess.getoutput("hostname"),
         socket.gethostbyname(subprocess.getoutput("hostname")))
-except :
+except:
     TITLE_HOSTINFO = "From: %s" % subprocess.getoutput("hostname")
 
 
@@ -61,10 +61,10 @@ PING_SSH_FAILED   = -3
 
 LOGDIR = ""
 
-class PingResult :
+class PingResult:
 
     def __init__(self, success = False, errcode = PING_FAILED,
-                 rtt = 0.0, ttl = 0) :
+                 rtt = 0.0, ttl = 0):
         self.success = success
         self.errcode = errcode
         self.rtt = rtt
@@ -72,9 +72,9 @@ class PingResult :
         return
     
 
-class PingTarget :
+class PingTarget:
 
-    def __init__(self, name, address, osname, relay = None, source = None) :
+    def __init__(self, name, address, osname, relay = None, source = None):
 
         self.name = name
         self.addr = address
@@ -93,24 +93,24 @@ class PingTarget :
 
         return
 
-    def __str__(self) :
+    def __str__(self):
         s = [self.name, self.addr]
-        if self.relay :
+        if self.relay:
             s.append(self.relay)
-        if self.source :
+        if self.source:
             s.append(self.source)
         return ':'.join(s)
 
-    def __eq__(self, other) :
+    def __eq__(self, other):
         return str(self) == str(other)
 
-    def send(self) :
+    def send(self):
 
         res = self.ping.send()
 
         self.snt += 1
 
-        if res.success :
+        if res.success:
             # Ping Success
             self.state = True
             self.rtt = res.rtt
@@ -118,7 +118,7 @@ class PingTarget :
             self.avg = (self.tot) / self.snt
             self.ttl = res.ttl
 
-        else :
+        else:
             # Ping Failed
             self.loss += 1
             self.state = False
@@ -126,37 +126,37 @@ class PingTarget :
         self.lossrate = float(self.loss) / float(self.snt) * 100.0
         self.result.insert(0, self.get_result_char(res))
 
-        while len(self.result) > RESULT_STR_LENGTH :
+        while len(self.result) > RESULT_STR_LENGTH:
             self.result.pop()
 
         return
 
-    def get_result_char(self, res) :
+    def get_result_char(self, res):
 
-        if res.errcode == PING_SSH_TIMEOUT :
+        if res.errcode == PING_SSH_TIMEOUT:
             # ssh timeout
             return "t"
 
-        if res.errcode == PING_SSH_FAILED :
+        if res.errcode == PING_SSH_FAILED:
             # ssh failed
             return "s"
 
-        if res.errcode == PING_FAILED :
+        if res.errcode == PING_FAILED:
             # ping timeout
             return "X"
 
-        if res.rtt < RTT_SCALE * 1 : return "▁"
-        if res.rtt < RTT_SCALE * 2 : return "▂"
-        if res.rtt < RTT_SCALE * 3 : return "▃"
-        if res.rtt < RTT_SCALE * 4 : return "▄"
-        if res.rtt < RTT_SCALE * 5 : return "▅"
-        if res.rtt < RTT_SCALE * 6 : return "▆"
-        if res.rtt < RTT_SCALE * 7 : return "▇"
+        if res.rtt < RTT_SCALE * 1: return "▁"
+        if res.rtt < RTT_SCALE * 2: return "▂"
+        if res.rtt < RTT_SCALE * 3: return "▃"
+        if res.rtt < RTT_SCALE * 4: return "▄"
+        if res.rtt < RTT_SCALE * 5: return "▅"
+        if res.rtt < RTT_SCALE * 6: return "▆"
+        if res.rtt < RTT_SCALE * 7: return "▇"
 
         return "█"
 
 
-    def refresh(self) :
+    def refresh(self):
         self.state = None
         self.lossrate = 0.0
         self.loss = 0
@@ -170,10 +170,9 @@ class PingTarget :
         return
 
 
-class Ping :
+class Ping:
 
-    def __init__(self, addr, osname, timeout = 1, relay = None,
-                 source = None) :
+    def __init__(self, addr, osname, timeout = 1, relay = None, source = None):
 
         self.addr = addr
         self.osname = osname
@@ -181,46 +180,42 @@ class Ping :
         self.source = source
         self.timeout = timeout
 
-        ipv = whichipversion(self.addr)
-        if ipv == 4 :
-            self.ipversion = 4
-        elif ipv == 6 :
-            self.ipversion = 6
-        else :
+        self.ipversion = whichipversion(self.addr)
+        if not self.ipversion:
             raise RuntimeError("invalid IP address '%s'" % self.addr)
 
-        self.pingcmd = pingcmd(osname, ipv)
+        self.pingcmd = pingcmd(osname, self.ipversion)
 
         return
 
-    def send(self) :
+    def send(self):
 
         # Build 'ping' command arguments
         cmd = []
 
         # Relay configuration
-        if self.relay and "via" in self.relay :
-            if self.relay["via"] == "snmp" :
+        if self.relay and "via" in self.relay:
+            if self.relay["via"] == "snmp":
                 ## SNMP
                 return self.sendSnmpPing()
 
-            if self.relay["via"] == "netns" :
+            if self.relay["via"] == "netns":
                 ## ping via Network Namespace
                 cmd += ["ip", "netns", "exec", self.relay["relay"]]
 
-        elif self.relay :
+        elif self.relay:
             ## SSH
             cmd += ["ssh", "-o",
                     "ConnectTimeout={}".format(SSH_CONNECT_TIMEOUT),
                     "-o", "StrictHostKeyChecking=no"]
 
-            if "key" in self.relay :
+            if "key" in self.relay:
                 cmd += ["-i", self.relay["key"]]
 
-            if "user" in self.relay :
+            if "user" in self.relay:
                 cmd += ["-l", self.relay["user"]]
 
-            if "relay" not in self.relay :
+            if "relay" not in self.relay:
                 raise RuntimeError("'relay' is not specified for %s" %
                                    self.addr)
 
@@ -229,12 +224,12 @@ class Ping :
         cmd += self.pingcmd
 
         # specifying source interface
-        if self.source :
-            if self.osname == "Linux" :
+        if self.source:
+            if self.osname == "Linux":
                 cmd += ["-I", self.source]
-            elif self.osname == "Darwin" :
+            elif self.osname == "Darwin":
                 cmd += ["-S", self.source]
-            else :
+            else:
                 raise RuntimeError("'source' not supported on %s" %
                                    self.osname)
 
@@ -263,39 +258,39 @@ class Ping :
 
         res = PingResult()
 
-        if rttm :
+        if rttm:
             res.success = True
             res.errcode = PING_SUCCESS
             res.rtt = float(rttm.group(1))
-            if ttlm :
+            if ttlm:
                 res.ttl = int(ttlm.group(1))
-            else :
+            else:
                 res.ttl = -1
 
-        if not rttm :
+        if not rttm:
             res.sucess = False
-            if "ping" in result :
+            if "ping" in result:
                 res.errcode = PING_FAILED
-            if "No route to host" in result :
+            if "No route to host" in result:
                 res.errcode = PING_FAILED
-            if "Operation timed out" in result :
+            if "Operation timed out" in result:
                 res.errcode = PING_SSH_TIMEOUT
-            if not "PING" in result :
+            if not "PING" in result:
                 res.errcode = PING_SSH_FAILED
 
             res.errcode = PING_FAILED
 
         return res
 
-    def sendSnmpPing(self) :
-        if "community" not in self.relay :
+    def sendSnmpPing(self):
+        if "community" not in self.relay:
             raise RuntimeError("'community' is not specified for %s" %
                                self.addr)
         community = self.relay["community"]
         community = community.replace("\\", "\\\\")
         community = community.replace("'", "\\'")
         snmpcmd = "snmpping -Cc1 -v 2c -c \'%s\' " % community
-        if "relay" not in self.relay :
+        if "relay" not in self.relay:
             raise RuntimeError("'relay' is not specified for %s" % self.addr)
 
         snmpcmd += " %s " % self.relay["relay"]
@@ -308,40 +303,40 @@ class Ping :
 
         res = PingResult()
 
-        if rttm :
+        if rttm:
             res.success = True
             res.errcode = PING_SUCCESS
             res.rtt = float(rttm.group(1))
             res.ttl = -1
 
-        if not rttm :
+        if not rttm:
             res.sucess = False
             res.errcode = PING_FAILED
 
         return res
 
 
-class CursesCtrl() :
+class CursesCtrl():
 
-    def __init__(self, stdscr) :
+    def __init__(self, stdscr):
         self.stdscr = stdscr
         return
 
-    def key_thread(self, *args) :
+    def key_thread(self, *args):
 
-        while True :
+        while True:
             ch = self.stdscr.getch()
 
-            if ch == ord('r') :
+            if ch == ord('r'):
                 num = 0
-                for target in args :
+                for target in args:
                     num += 1
                     target.refresh()
                     self.erase_pingtarget(num)
                     self.print_pingtarget(target, num)
 
 
-    def update_info(self, targets) :
+    def update_info(self, targets):
 
         # update start point and string length
         self.y, self.x = self.stdscr.getmaxyx()
@@ -352,19 +347,19 @@ class CursesCtrl() :
 
         # update hostname
         hlen = len("HOSTNAME ")
-        for target in targets :
-            if hlen < len(target.name) : hlen = len(target.name)
-        if hlen > MAX_HOSTNAME_LENGTH : hlen = MAX_HOSTNAME_LENGTH
+        for target in targets:
+            if hlen < len(target.name): hlen = len(target.name)
+        if hlen > MAX_HOSTNAME_LENGTH: hlen = MAX_HOSTNAME_LENGTH
 
         self.start_hostname = self.start_arrow + self.length_arrow
         self.length_hostname = hlen
 
         # update address
         alen = len("ADDRESS ")
-        for target in targets :
-            if alen < len(target.addr) : alen = len(target.addr)
-        if alen > MAX_ADDRESS_LENGTH : alen = MAX_ADDRESS_LENGTH
-        else : alen += 5
+        for target in targets:
+            if alen < len(target.addr): alen = len(target.addr)
+        if alen > MAX_ADDRESS_LENGTH: alen = MAX_ADDRESS_LENGTH
+        else: alen += 5
 
         self.start_address = self.start_hostname + self.length_hostname + 1
         self.length_address = alen
@@ -378,7 +373,7 @@ class CursesCtrl() :
         self.res_length = self.x - (self.ref_start + self.ref_length + 2)
 
         # reverse
-        if self.res_length < 10 :
+        if self.res_length < 10:
             rev = 10 - self.res_length + len(ARROW)
             self.ref_start -= rev
             self.res_start -= rev
@@ -390,25 +385,25 @@ class CursesCtrl() :
         return
 
 
-    def refresh(self) :
+    def refresh(self):
 
         self.stdscr.refresh()
         return
 
-    def waddstr(self, *args) :
+    def waddstr(self, *args):
 
         # wrapper for stdscr.addstr
 
-        try :
-            if len(args) == 3 :
+        try:
+            if len(args) == 3:
                 self.stdscr.addstr(args[0], args[1], args[2])
-            if len(args) > 3 :
+            if len(args) > 3:
                 self.stdscr.addstr(args[0], args[1], args[2], args[3])
-        except curses.error :
+        except curses.error:
             pass
 
 
-    def print_title(self) :
+    def print_title(self):
 
         # Print Program name on center of top line
         spacelen = int((self.x - len(TITLE_PROGNAME)) / 2)
@@ -425,16 +420,16 @@ class CursesCtrl() :
         self.stdscr.refresh()
         return
 
-    def erase_title(self) :
+    def erase_title(self):
         space = ""
-        for x in range(self.x) :
+        for x in range(self.x):
             space += " "
         self.waddstr(0, 0, space)
         self.waddstr(1, 0, space)
         self.waddstr(2, 0, space)
         return
 
-    def print_reference(self) :
+    def print_reference(self):
         hostname_str = "HOSTNAME"
         address_str = "ADDRESS"
         values_str = " LOSS  TTL  RTT  AVG  SNT  RESULT"
@@ -453,15 +448,15 @@ class CursesCtrl() :
         self.stdscr.refresh()
         return
 
-    def erase_reference(self) :
+    def erase_reference(self):
         self.waddstr(TITLE_VERTIC_LENGTH, 0, " " * self.x)
         return
 
-    def print_pingtarget(self, target, number) :
+    def print_pingtarget(self, target, number):
 
-        if target.state :
+        if target.state:
             line_color = curses.color_pair(DEFAULT_COLOR)
-        else :
+        else:
             line_color = curses.A_BOLD
 
         linenum = number + TITLE_VERTIC_LENGTH
@@ -482,21 +477,21 @@ class CursesCtrl() :
         self.waddstr(linenum, self.ref_start, values_str, line_color)
 
 
-        for n in range(len(target.result)) :
+        for n in range(len(target.result)):
             if not target.result[n] in ("X", "t", "s"):
                 color = curses.color_pair(UP_COLOR)
-            else :
+            else:
                 color = curses.color_pair(DOWN_COLOR)
 
             y, x = self.stdscr.getmaxyx()
-            if self.res_start + n > x :
+            if self.res_start + n > x:
                 continue
             self.waddstr(linenum, self.res_start + n, target.result[n], color)
 
         y, x = self.stdscr.getmaxyx()
         self.waddstr(linenum, x - len(REAR), REAR)
         
-        if LOGDIR in sys.argv :
+        if LOGDIR in sys.argv:
             filepath = LOGDIR + "/" + target.name
             if os.path.isdir(LOGDIR) == False:
                 os.makedirs(LOGDIR)
@@ -507,7 +502,7 @@ class CursesCtrl() :
                      str(target.snt) + "\n")
             f.write(fline)
             f.close()
-        else :
+        else:
             pass 
 
         self.stdscr.move(0, 0)
@@ -515,7 +510,7 @@ class CursesCtrl() :
 
         return
         
-    def print_arrow(self, number) :
+    def print_arrow(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
 
         self.waddstr(linenum, self.start_arrow, ARROW)
@@ -523,11 +518,11 @@ class CursesCtrl() :
         self.stdscr.refresh()
         return
 
-    def erase_arrow(self, number) :
+    def erase_arrow(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
 
         space_str = ""
-        for x in range(len(ARROW)) :
+        for x in range(len(ARROW)):
             space_str += " "
 
         self.waddstr(linenum, self.start_arrow, space_str)
@@ -535,18 +530,18 @@ class CursesCtrl() :
         self.stdscr.refresh()
         return
 
-    def erase_pingtarget(self, number) :
+    def erase_pingtarget(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
         space = ""
-        for x in range(self.x) :
+        for x in range(self.x):
             space += " "
         self.waddstr(linenum, 2, space)
         return
 
 
-class Deadman :
+class Deadman:
 
-    def __init__(self, stdscr, configfile) :
+    def __init__(self, stdscr, configfile):
 
         self.curs = CursesCtrl(stdscr)
         self.configfile = configfile
@@ -561,17 +556,17 @@ class Deadman :
 
         return
 
-    def addtargets(self) :
+    def addtargets(self):
         newtargets = []
         self.targetlist = self.gettargetlist(self.configfile)
 
-        for name, addr, relay, source in self.targetlist :
+        for name, addr, relay, source in self.targetlist:
             osname = relay.get('os', OSNAME)
 
             pt = PingTarget(name, addr, osname,
                             relay = relay, source = source)
             idx = -1
-            if pt in self.targets :
+            if pt in self.targets:
                 idx = self.targets.index(pt)
                 newtargets.append(self.targets[idx])
             else:
@@ -580,17 +575,17 @@ class Deadman :
         self.targets = newtargets
         self.curs.update_info(self.targets)
 
-    def main(self) :
+    def main(self):
 
         _thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
 
         # print blank line
         num = 0
-        for target in self.targets :
+        for target in self.targets:
             num += 1
             self.curs.print_pingtarget(target, num)
 
-        while True :
+        while True:
 
             self.curs.update_info(self.targets)
             self.curs.erase_title()
@@ -599,7 +594,7 @@ class Deadman :
             self.curs.print_reference()
 
             num = 0
-            for target in self.targets :
+            for target in self.targets:
                 num += 1
 
                 self.curs.print_arrow(num)
@@ -615,15 +610,15 @@ class Deadman :
             self.curs.erase_pingtarget(num + 1)
 
 
-    def updatetargets(self, signum, frame) :
+    def updatetargets(self, signum, frame):
         self.addtargets()
         self.curs.refresh()
  
-    def gettargetlist(self, configfile) :
+    def gettargetlist(self, configfile):
 
         targetlist = []
 
-        for line in configfile :
+        for line in configfile:
 
             line = re.sub('\t', ' ', line)
             line = re.sub('\s+', ' ', line)
@@ -631,7 +626,7 @@ class Deadman :
             line = re.sub(';\s*#', '', line)
             line = line.strip()
 
-            if line == "" :
+            if line == "":
                 continue
 
             ss = line.split(' ')
@@ -639,12 +634,12 @@ class Deadman :
             addr = ss.pop(0)
             source = None
             relay = {}
-            for s in ss :
+            for s in ss:
                 key, value = s.split("=")
                 if key in ("os", "relay", "via", "community",
-                           "netns", "user", "key") :
+                           "netns", "user", "key"):
                     relay[key] = value
-                elif key == "source" :
+                elif key == "source":
                     source = value
 
             targetlist.append([name, addr, relay, source])
@@ -656,37 +651,37 @@ class Deadman :
 
 
 # mics
-def whichipversion(addr) :
+def whichipversion(addr):
 
-    if re.match(r'^(\d{1,3}\.){3,3}\d{1,3}$', addr)  :
+    if re.match(r'^(\d{1,3}\.){3,3}\d{1,3}$', addr):
         return 4
 
-    if re.match(r'((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$', addr) :
+    if re.match(r'((([0-9a-f]{1,4}:){7}([0-9a-f]{1,4}|:))|(([0-9a-f]{1,4}:){6}(:[0-9a-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){5}(((:[0-9a-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-f]{1,4}:){4}(((:[0-9a-f]{1,4}){1,3})|((:[0-9a-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){3}(((:[0-9a-f]{1,4}){1,4})|((:[0-9a-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){2}(((:[0-9a-f]{1,4}){1,5})|((:[0-9a-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-f]{1,4}:){1}(((:[0-9a-f]{1,4}){1,6})|((:[0-9a-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-f]{1,4}){1,7})|((:[0-9a-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$', addr):
         return 6
 
-    return -1
+    return False
 
 
-def pingcmd(osname, ipv) :
+def pingcmd(osname, ipv):
 
     """
-    XXX : add new osname (uname -s) to support new OS.
+    XXX: add new osname (uname -s) to support new OS.
 
     Timeout is controlled by subprocess.check_output(cmd, timeout = X).
     As a result, there is no difference :0 I need cleanup.
     """
-    if osname == "Linux" :
-        if ipv == 4 : return ["ping", "-c", "1"]
-        if ipv == 6 : return ["ping6", "-c", "1"]
-    elif osname == "Darwin" :
-        if ipv == 4 : return ["ping", "-c", "1"]
-        if ipv == 6 : return ["ping6", "-c", "1"]
+    if osname == "Linux":
+        if ipv == 4: return ["ping", "-c", "1"]
+        if ipv == 6: return ["ping6", "-c", "1"]
+    elif osname == "Darwin":
+        if ipv == 4: return ["ping", "-c", "1"]
+        if ipv == 6: return ["ping6", "-c", "1"]
 
     return None
 
 
 
-def main(stdscr, configfile) :
+def main(stdscr, configfile):
 
     curses.start_color()
     curses.use_default_colors()
@@ -705,9 +700,9 @@ def main(stdscr, configfile) :
 
 
 
-if __name__ == '__main__' :
+if __name__ == '__main__':
 
-    if not pingcmd(OSNAME, 4) :
+    if not pingcmd(OSNAME, 4):
         print("%s is not supported" % OSNAME)
         sys.exit(0)
 
@@ -723,8 +718,8 @@ if __name__ == '__main__' :
     RTT_SCALE = args.scale
     LOGDIR    = args.logdir
 
-    try :
+    try:
         curses.wrapper(main, args.configfile)
 
-    except KeyboardInterrupt :
+    except KeyboardInterrupt:
         sys.exit(0)
