@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # original software is "pingman".
@@ -16,36 +16,23 @@ import curses
 import locale
 import datetime
 import signal
-from optparse import OptionParser
-
-# Python3 doesn't have commands module anymore
-# Python2 already has subprocess, but Python2's
-# subprocess doesn't provide getoutput
-try:
-    from commands import getoutput
-except ImportError:
-    from subprocess import getoutput
-
-# Python3 provides the lowlevel threading api
-# which Python2 exposed as _thread
-try:
-    import thread
-except ImportError:
-    import _thread as thread
+import argparse
+import subprocess
+import _thread
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Dead Man"
-TITLE_VERSION = "[ver 16.11.11]"
+TITLE_VERSION = "[ver 20.01.08]"
 TITLE_VERTIC_LENGTH = 4
 
 try :
     TITLE_HOSTINFO = "From: %s (%s)" % (
-        getoutput("hostname"),
-        socket.gethostbyname(getoutput("hostname")))
+        subprocess.getoutput("hostname"),
+        socket.gethostbyname(subprocess.getoutput("hostname")))
 except :
-    TITLE_HOSTINFO = "From: %s" % getoutput("hostname")
+    TITLE_HOSTINFO = "From: %s" % subprocess.getoutput("hostname")
 
 
 ARROW = " > "
@@ -61,11 +48,10 @@ UP_COLOR = 2
 DOWN_COLOR = 3
 
 RTT_SCALE = 10
-CONFIGFILE = "deadman.conf"
 
 SSH_CONNECT_TIMEOUT = 3
 
-OSNAME = getoutput("uname -s")
+OSNAME = subprocess.getoutput("uname -s")
 
 
 PING_SUCCESS      = 0
@@ -191,12 +177,11 @@ class Ping :
     def __init__(self, addr, osname, timeout = 1, relay = None,
                  source = None) :
 
-        # XXX: 'timeout' must overwrite pingcmdstr -W or -i options
-
         self.addr = addr
         self.osname = osname
         self.relay = relay
         self.source = source
+        self.timeout = timeout
 
         ipv = whichipversion(self.addr)
         if ipv == 4 :
@@ -247,8 +232,19 @@ class Ping :
                                    self.osname)
 
         pingcmd = viacmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
+        try:
+            r = subprocess.check_output(pingcmd.split(" "),
+                                        stderr = subprocess.DEVNULL,
+                                        timeout = self.timeout)
+        except subprocess.TimeoutExpired:
+            res = PingResult()
+            res.errcode = PING_FAILED
+            return res
+        except subprocess.CalledProcessError as e:
+            r = e.output
 
-        result = getoutput(pingcmd)
+        result = r.decode("utf-8")
+
 
         rttm = re.search(r'time=(\d+\.\d+)', result)
         if not rttm:
@@ -299,7 +295,7 @@ class Ping :
 
         pingcmd = snmpcmd + " %s" % self.addr
 
-        result = getoutput(pingcmd)
+        result = subprocess.getoutput(pingcmd)
 
         rttm = re.search(r'rtt min/avg/max/stddev = (\d+)', result)
 
@@ -580,7 +576,7 @@ class Deadman :
 
     def main(self) :
 
-        thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
+        _thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
 
         # print blank line
         num = 0
@@ -619,21 +615,15 @@ class Deadman :
  
     def gettargetlist(self, configfile) :
 
-        try :
-            cf = open(configfile, "r")
-        except :
-            sys.exit(r'can not open config file "%s"' % (configfile))
-
         targetlist = []
 
-        for line in cf :
+        for line in configfile :
 
             line = re.sub('\t', ' ', line)
             line = re.sub('\s+', ' ', line)
             line = re.sub('^#.*', '', line)
             line = re.sub(';\s*#', '', line)
-            line = line.strip(' \r\n')
-            line = line.rstrip(' \r\n')
+            line = line.strip()
 
             if line == "" :
                 continue
@@ -653,7 +643,7 @@ class Deadman :
 
             targetlist.append([name, addr, relay, source])
 
-        cf.close()
+        configfile.close()
 
         return targetlist
 
@@ -673,19 +663,22 @@ def whichipversion(addr) :
 
 def pingcmdstrings(osname, ipv) :
 
-    # XXX : add new osname (uname -s) to support new OS.
+    """
+    XXX : add new osname (uname -s) to support new OS.
+    Timeout is controlled by subprocess.check_output(cmd, timeout = X)
+    """
     if osname == "Linux" :
-        if ipv == 4 : return "ping -W 1 -c 1"
-        if ipv == 6 : return "ping6 -i 1 -c 1"
+        if ipv == 4 : return "ping  -c 1"
+        if ipv == 6 : return "ping6 -c 1"
     elif osname == "Darwin" :
-        if ipv == 4 : return "ping -W 1000 -c 1"
-        if ipv == 6 : return "ping6 -i 1 -c 1"
+        if ipv == 4 : return "ping -c 1"
+        if ipv == 6 : return "ping6 -c 1"
 
     return None
 
 
 
-def main(stdscr) :
+def main(stdscr, configfile) :
 
     curses.start_color()
     curses.use_default_colors()
@@ -697,7 +690,7 @@ def main(stdscr) :
     XXX: parse and validating config file shoud be done before curses.wrapper.
     """
 
-    deadman = Deadman(stdscr, CONFIGFILE)
+    deadman = Deadman(stdscr, configfile)
     deadman.main()
 
     return
@@ -710,31 +703,20 @@ if __name__ == '__main__' :
         print("%s is not supported" % OSNAME)
         sys.exit(0)
 
-    desc = "usage : %prog [options] configfile"
-    parser = OptionParser(desc)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-s", "--scale", type = int, default = 10,
+                        help = "scale of ping RTT bar gap, default 10 (ms)")
+    parser.add_argument("-l", "--logging", default = None, dest = "logdir",
+                        help = "directory for log files")
+    parser.add_argument("configfile", type = argparse.FileType("r"),
+                        help = "config file for deadman")
 
-    parser.add_option(
-        '-s', '--scale', type = "int", default = 10, dest = 'scale',
-        help = 'scale of ping RTT bar gap.'
-    )
-    parser.add_option(
-        '-l', '--logging', type = "string", default = None, dest = 'logdir',
-        help = 'logging.'
-    )
-
-    (options, args) = parser.parse_args()
-    
-    RTT_SCALE = options.scale
-    LOGDIR    = options.logdir
+    args = parser.parse_args()
+    RTT_SCALE = args.scale
+    LOGDIR    = args.logdir
 
     try :
-        CONFIGFILE = args.pop()
-    except :
-        sys.stderr.write("config file is not specified. deadman [-s scale] [-l logdir] configfile\n")
-        sys.exit()
-
-    try :
-        curses.wrapper(main)
+        curses.wrapper(main, args.configfile)
 
     except KeyboardInterrupt :
         sys.exit(0)
