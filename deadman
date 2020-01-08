@@ -89,9 +89,7 @@ class PingTarget :
         self.snt = 0 # number of sent ping
         self.ttl = 0 # last ttl
         self.result = []
-
-        self.ping = Ping(self.addr, osname, relay = relay,
-                          source = source)
+        self.ping = Ping(self.addr, osname, relay = relay, source = source)
 
         return
 
@@ -189,17 +187,18 @@ class Ping :
         elif ipv == 6 :
             self.ipversion = 6
         else :
-            self.ipversion = -1
-            raise RuntimeError("invalid IP address \"%s\"" % self.addr)
+            raise RuntimeError("invalid IP address '%s'" % self.addr)
 
-        self.pingcmdstr = pingcmdstrings(osname, ipv)
+        self.pingcmd = pingcmd(osname, ipv)
 
         return
 
     def send(self) :
 
-        viacmd = ""
-        sourcecmd = ""
+        # Build 'ping' command arguments
+        cmd = []
+
+        # Relay configuration
         if self.relay and "via" in self.relay :
             if self.relay["via"] == "snmp" :
                 ## SNMP
@@ -207,34 +206,42 @@ class Ping :
 
             if self.relay["via"] == "netns" :
                 ## ping via Network Namespace
-                viacmd = "ip netns exec %s " % self.relay["relay"]
+                cmd += ["ip", "netns", "exec", self.relay["relay"]]
 
         elif self.relay :
             ## SSH
-            viacmd = ("ssh -o ConnectTimeout=%d -o StrictHostKeyChecking=no " %
-                      SSH_CONNECT_TIMEOUT)
-            if "key" in self.relay :
-                viacmd += "-i %s " % self.relay["key"]
-            if "user" in self.relay :
-                viacmd += "-l %s " % self.relay["user"]
-            if "relay" not in self.relay :
-                raise RuntimeError("\"relay\" is not specified for %s" %
-                                   self.addr)
-            viacmd += "%s " % self.relay["relay"]
+            cmd += ["ssh", "-o",
+                    "ConnectTimeout={}".format(SSH_CONNECT_TIMEOUT),
+                    "-o", "StrictHostKeyChecking=no"]
 
+            if "key" in self.relay :
+                cmd += ["-i", self.relay["key"]]
+
+            if "user" in self.relay :
+                cmd += ["-l", self.relay["user"]]
+
+            if "relay" not in self.relay :
+                raise RuntimeError("'relay' is not specified for %s" %
+                                   self.addr)
+
+            cmd += [self.relay["relay"]]
+
+        cmd += self.pingcmd
+
+        # specifying source interface
         if self.source :
             if self.osname == "Linux" :
-                sourcecmd += " %s " % ("-I %s" % self.source)
+                cmd += ["-I", self.source]
             elif self.osname == "Darwin" :
-                sourcecmd += " %s " % ("-S %s" % self.source)
+                cmd += ["-S", self.source]
             else :
-                raise RuntimeError("\"source\" not supported on %s" %
+                raise RuntimeError("'source' not supported on %s" %
                                    self.osname)
 
-        pingcmd = viacmd + self.pingcmdstr + sourcecmd + " %s" % self.addr
+        cmd += [self.addr]
+
         try:
-            r = subprocess.check_output(pingcmd.split(" "),
-                                        stderr = subprocess.DEVNULL,
+            r = subprocess.check_output(cmd, stderr = subprocess.DEVNULL,
                                         timeout = self.timeout)
         except subprocess.TimeoutExpired:
             res = PingResult()
@@ -267,13 +274,13 @@ class Ping :
 
         if not rttm :
             res.sucess = False
-            if re.search(r'ping', result) :
+            if "ping" in result :
                 res.errcode = PING_FAILED
-            if re.search(r'No route to host', result) :
+            if "No route to host" in result :
                 res.errcode = PING_FAILED
-            if re.search(r'Operation timed out', result) :
+            if "Operation timed out" in result :
                 res.errcode = PING_SSH_TIMEOUT
-            if not re.search(r'PING', result) :
+            if not "PING" in result :
                 res.errcode = PING_SSH_FAILED
 
             res.errcode = PING_FAILED
@@ -282,14 +289,14 @@ class Ping :
 
     def sendSnmpPing(self) :
         if "community" not in self.relay :
-            raise RuntimeError("\"community\" is not specified for %s" %
+            raise RuntimeError("'community' is not specified for %s" %
                                self.addr)
         community = self.relay["community"]
         community = community.replace("\\", "\\\\")
         community = community.replace("'", "\\'")
         snmpcmd = "snmpping -Cc1 -v 2c -c \'%s\' " % community
         if "relay" not in self.relay :
-            raise RuntimeError("\"relay\" is not specified for %s" % self.addr)
+            raise RuntimeError("'relay' is not specified for %s" % self.addr)
 
         snmpcmd += " %s " % self.relay["relay"]
 
@@ -335,8 +342,8 @@ class CursesCtrl() :
 
 
     def update_info(self, targets) :
-        # update start point and string length
 
+        # update start point and string length
         self.y, self.x = self.stdscr.getmaxyx()
 
         # update arrow
@@ -408,8 +415,8 @@ class CursesCtrl() :
         self.waddstr(0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
 
         # Print hostname and version number
-        self.waddstr(1, self.start_hostname, TITLE_HOSTINFO,
-                            curses.A_BOLD)
+        self.waddstr(1, self.start_hostname, TITLE_HOSTINFO, curses.A_BOLD)
+
         spacelen = self.x - (len(ARROW) + len(TITLE_VERSION))
         self.waddstr(1, spacelen, TITLE_VERSION, curses.A_BOLD)
         self.waddstr(2, len(ARROW),
@@ -447,10 +454,7 @@ class CursesCtrl() :
         return
 
     def erase_reference(self) :
-        space = ""
-        for x in range(self.x) :
-            space += " "
-        self.waddstr(TITLE_VERTIC_LENGTH, 0, space)
+        self.waddstr(TITLE_VERTIC_LENGTH, 0, " " * self.x)
         return
 
     def print_pingtarget(self, target, number) :
@@ -479,16 +483,15 @@ class CursesCtrl() :
 
 
         for n in range(len(target.result)) :
-            if target.result[n] != "X" and target.result[n] != "t" and target.result[n] != "s":
+            if not target.result[n] in ("X", "t", "s"):
                 color = curses.color_pair(UP_COLOR)
             else :
-                color = curses.color_pair (DOWN_COLOR)
+                color = curses.color_pair(DOWN_COLOR)
 
             y, x = self.stdscr.getmaxyx()
             if self.res_start + n > x :
                 continue
-            self.waddstr(linenum, self.res_start + n,
-                         target.result[n], color)
+            self.waddstr(linenum, self.res_start + n, target.result[n], color)
 
         y, x = self.stdscr.getmaxyx()
         self.waddstr(linenum, x - len(REAR), REAR)
@@ -498,7 +501,10 @@ class CursesCtrl() :
             if os.path.isdir(LOGDIR) == False:
                 os.makedirs(LOGDIR)
             f = open(filepath, 'a')
-            fline = str(datetime.datetime.now()) + " " + str(target.rtt) + " " + str(target.avg) + " " + str(target.snt) + "\n";
+            fline = (str(datetime.datetime.now()) + " " +
+                     str(target.rtt) + " " +
+                     str(target.avg) + " " +
+                     str(target.snt) + "\n")
             f.write(fline)
             f.close()
         else :
@@ -661,18 +667,20 @@ def whichipversion(addr) :
     return -1
 
 
-def pingcmdstrings(osname, ipv) :
+def pingcmd(osname, ipv) :
 
     """
     XXX : add new osname (uname -s) to support new OS.
-    Timeout is controlled by subprocess.check_output(cmd, timeout = X)
+
+    Timeout is controlled by subprocess.check_output(cmd, timeout = X).
+    As a result, there is no difference :0 I need cleanup.
     """
     if osname == "Linux" :
-        if ipv == 4 : return "ping  -c 1"
-        if ipv == 6 : return "ping6 -c 1"
+        if ipv == 4 : return ["ping", "-c", "1"]
+        if ipv == 6 : return ["ping6", "-c", "1"]
     elif osname == "Darwin" :
-        if ipv == 4 : return "ping -c 1"
-        if ipv == 6 : return "ping6 -c 1"
+        if ipv == 4 : return ["ping", "-c", "1"]
+        if ipv == 6 : return ["ping6", "-c", "1"]
 
     return None
 
@@ -699,7 +707,7 @@ def main(stdscr, configfile) :
 
 if __name__ == '__main__' :
 
-    if not pingcmdstrings(OSNAME, 4) :
+    if not pingcmd(OSNAME, 4) :
         print("%s is not supported" % OSNAME)
         sys.exit(0)
 
