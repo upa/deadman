@@ -675,10 +675,9 @@ def pingcmd(osname, ipv):
     Timeout is controlled by subprocess.check_output(cmd, timeout = X).
     As a result, there is no difference :0 I need cleanup.
     """
-    if osname == "Linux":
-        if ipv == 4: return ["ping", "-c", "1"]
-        if ipv == 6: return ["ping6", "-c", "1"]
-    elif osname == "Darwin":
+    if (osname == "Linux" or
+        osname == "Darwin" or
+        osname == "FreeBSD"):
         if ipv == 4: return ["ping", "-c", "1"]
         if ipv == 6: return ["ping6", "-c", "1"]
 
