@@ -203,6 +203,10 @@ class Ping:
                 ## ping via Network Namespace
                 cmd += ["ip", "netns", "exec", self.relay["relay"]]
 
+            if self.relay["via"] == "vrf":
+                ## ping via VRF
+                cmd += ["ip", "vrf", "exec", self.relay["relay"]]
+
         elif self.relay:
             ## SSH
             cmd += ["ssh", "-o",
