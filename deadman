@@ -24,7 +24,7 @@ locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
 
 TITLE_PROGNAME = "Dead Man"
-TITLE_VERSION = "[ver 21.07.01]"
+TITLE_VERSION = "[ver 22.01.11]"
 TITLE_VERTIC_LENGTH = 4
 
 try:
@@ -332,12 +332,10 @@ class CursesCtrl():
             ch = self.stdscr.getch()
 
             if ch == ord('r'):
-                num = 0
-                for target in args:
-                    num += 1
+                for idx, target in enumerate(args, 1):
                     target.refresh()
-                    self.erase_pingtarget(num)
-                    self.print_pingtarget(target, num)
+                    self.erase_pingtarget(idx)
+                    self.print_pingtarget(target, idx)
 
 
     def update_info(self, targets):
@@ -388,11 +386,13 @@ class CursesCtrl():
 
         return
 
+    def reinit(self):
+        curses.endwin()
+        self.stdscr = curses.initscr()
+        self.stdscr.clear()
 
     def refresh(self):
-
         self.stdscr.refresh()
-        return
 
     def waddstr(self, *args):
 
@@ -516,7 +516,6 @@ class CursesCtrl():
         
     def print_arrow(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
-
         self.waddstr(linenum, self.start_arrow, ARROW)
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
@@ -524,22 +523,14 @@ class CursesCtrl():
 
     def erase_arrow(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
-
-        space_str = ""
-        for x in range(len(ARROW)):
-            space_str += " "
-
-        self.waddstr(linenum, self.start_arrow, space_str)
+        self.waddstr(linenum, self.start_arrow, " " * len(ARROW))
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
         return
 
     def erase_pingtarget(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
-        space = ""
-        for x in range(self.x):
-            space += " "
-        self.waddstr(linenum, 2, space)
+        self.waddstr(linenum, 2, " " * self.x)
         return
 
 
@@ -553,6 +544,7 @@ class Deadman:
 
         self.addtargets()
 
+        signal.signal(signal.SIGWINCH, self.refresh_window)
         signal.signal(signal.SIGHUP, self.updatetargets)
         signal.siginterrupt(signal.SIGHUP, False)
 
@@ -597,21 +589,28 @@ class Deadman:
             self.curs.erase_reference()
             self.curs.print_reference()
 
-            num = 0
-            for target in self.targets:
-                num += 1
-
-                self.curs.print_arrow(num)
+            for idx, target in enumerate(self.targets, 1):
+                self.curs.print_arrow(idx)
                 target.send()
-                self.curs.erase_pingtarget(num)
-                self.curs.print_pingtarget(target, num)
+                self.curs.erase_pingtarget(idx)
+                self.curs.print_pingtarget(target, idx)
                 time.sleep(PING_INTERVAL)
-                self.curs.erase_arrow(num)
+                self.curs.erase_arrow(idx)
 
-            self.curs.print_arrow(num)
+            self.curs.print_arrow(idx)
             time.sleep(PING_ALLTARGET_INTERVAL)
-            self.curs.erase_arrow(num)
-            self.curs.erase_pingtarget(num + 1)
+            self.curs.erase_arrow(idx)
+            self.curs.erase_pingtarget(idx + 1)
+
+
+    def refresh_window(self, signum, frame):
+        self.curs.reinit()
+        self.curs.update_info(self.targets)
+        self.curs.print_title()
+        self.curs.print_reference()
+
+        for idx, target in enumerate(self.targets, 1):
+                self.curs.print_pingtarget(target, idx)
 
 
     def updatetargets(self, signum, frame):
