@@ -19,6 +19,7 @@ import signal
 import argparse
 import subprocess
 import _thread
+import threading
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
 
@@ -90,6 +91,8 @@ class PingTarget:
         self.ttl = 0 # last ttl
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source)
+        self.t=threading.Thread(target=self.loop_send)
+        self.t.start()
 
         return
 
@@ -105,6 +108,14 @@ class PingTarget:
         return str(self) == str(other)
 
     def send(self):
+        return
+
+    def loop_send(self):
+        while True:
+            self.real_send()
+            time.sleep(1)
+
+    def real_send(self):
 
         res = self.ping.send()
 
