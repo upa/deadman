@@ -92,7 +92,8 @@ class PingTarget:
         self.ttl = 0 # last ttl
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source)
-        self.t=threading.Thread(target=self.loop_send)
+        self.lock=threading.Lock()
+        self.t=threading.Thread(target=self.loop_send, args=(self.lock,))
         self.t.start()
 
         return
@@ -108,20 +109,28 @@ class PingTarget:
     def __eq__(self, other):
         return str(self) == str(other)
 
+    def acquire(self):
+        self.lock.acquire()
+
+    def release(self):
+        self.lock.release()
+
     def send(self):
         return
 
-    def loop_send(self):
+    def loop_send(self, lock):
         while True:
-            self.real_send()
+            self.real_send(lock)
             time.sleep(PING_THREAD_INTERAL)
 
-    def real_send(self):
+    def real_send(self, lock):
 
+#        lock.acquire()
         res = self.ping.send()
 
         self.snt += 1
 
+        lock.acquire()
         if res.success:
             # Ping Success
             self.state = True
@@ -140,6 +149,7 @@ class PingTarget:
 
         while len(self.result) > RESULT_STR_LENGTH:
             self.result.pop()
+        lock.release()
 
         return
 
@@ -470,6 +480,7 @@ class CursesCtrl():
 
     def print_pingtarget(self, target, number):
 
+        target.acquire()
         if target.state:
             line_color = curses.color_pair(DEFAULT_COLOR)
         else:
@@ -521,6 +532,7 @@ class CursesCtrl():
         else:
             pass 
 
+        target.release()
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
 
