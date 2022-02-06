@@ -126,7 +126,6 @@ class PingTarget:
 
     def real_send(self, lock):
 
-#        lock.acquire()
         res = self.ping.send()
 
         self.snt += 1
