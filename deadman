@@ -43,7 +43,7 @@ PING_ALLTARGET_INTERVAL = 1
 MAX_HOSTNAME_LENGTH = 20
 MAX_ADDRESS_LENGTH = 40
 RESULT_STR_LENGTH = 10
-PING_THREAD_INTERAL = 1
+PING_THREAD_INTERVAL = 1
 
 DEFAULT_COLOR = 1
 UP_COLOR = 2
@@ -121,7 +121,7 @@ class PingTarget:
     def loop_send(self, lock):
         while True:
             self.real_send(lock)
-            time.sleep(PING_THREAD_INTERAL)
+            time.sleep(PING_THREAD_INTERVAL)
 
     def real_send(self, lock):
 
