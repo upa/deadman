@@ -121,7 +121,8 @@ class PingTarget:
     def loop_send(self, lock):
         while True:
             self.real_send(lock)
-            time.sleep(PING_THREAD_INTERVAL)
+            if self.state == True:
+                time.sleep(PING_THREAD_INTERVAL)
 
     def real_send(self, lock):
 
