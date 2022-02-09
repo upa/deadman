@@ -17,7 +17,10 @@ import locale
 import datetime
 import signal
 import argparse
-import subprocess
+import asyncio
+import concurrent.futures
+from shlex import quote
+from subprocess import DEVNULL, PIPE, getoutput
 import _thread
 
 locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
@@ -29,10 +32,10 @@ TITLE_VERTIC_LENGTH = 4
 
 try:
     TITLE_HOSTINFO = "From: %s (%s)" % (
-        subprocess.getoutput("hostname"),
-        socket.gethostbyname(subprocess.getoutput("hostname")))
+        getoutput("hostname"),
+        socket.gethostbyname(getoutput("hostname")))
 except:
-    TITLE_HOSTINFO = "From: %s" % subprocess.getoutput("hostname")
+    TITLE_HOSTINFO = "From: %s" % getoutput("hostname")
 
 
 ARROW = " > "
@@ -51,7 +54,7 @@ RTT_SCALE = 10
 
 SSH_CONNECT_TIMEOUT = 3
 
-OSNAME = subprocess.getoutput("uname -s")
+OSNAME = getoutput("uname -s")
 
 
 PING_SUCCESS      = 0
@@ -60,6 +63,7 @@ PING_SSH_TIMEOUT  = -2
 PING_SSH_FAILED   = -3
 
 LOGDIR = ""
+
 
 class PingResult:
 
@@ -105,11 +109,14 @@ class PingTarget:
         return str(self) == str(other)
 
     def send(self):
+        asyncio.run(self.async_send())
 
-        res = self.ping.send()
-
+    async def async_send(self):
         self.snt += 1
+        res = await self.ping.async_send()
+        self.consume_ping_result(res)
 
+    def consume_ping_result(self, res):
         if res.success:
             # Ping Success
             self.state = True
@@ -117,7 +124,6 @@ class PingTarget:
             self.tot += res.rtt
             self.avg = (self.tot) / self.snt
             self.ttl = res.ttl
-
         else:
             # Ping Failed
             self.loss += 1
@@ -188,7 +194,8 @@ class Ping:
 
         return
 
-    def send(self):
+
+    async def async_send(self):
 
         # Build 'ping' command arguments
         cmd = []
@@ -238,19 +245,18 @@ class Ping:
                                    self.osname)
 
         cmd += [self.addr]
+        proc = await asyncio.create_subprocess_exec(*cmd,
+                                                    stderr = DEVNULL,
+                                                    stdout = PIPE)
 
         try:
-            r = subprocess.check_output(cmd, stderr = subprocess.DEVNULL,
-                                        timeout = self.timeout)
-        except subprocess.TimeoutExpired:
-            res = PingResult()
-            res.errcode = PING_FAILED
-            return res
-        except subprocess.CalledProcessError as e:
-            r = e.output
+            await asyncio.wait_for(proc.wait(), timeout = 1.0)
+        except asyncio.TimeoutError:
+            proc.terminate()
+            await proc.wait()
 
-        result = r.decode("utf-8")
-
+        (out, err) = await proc.communicate()
+        result = out.decode("utf-8")
 
         rttm = re.search(r'time=(\d+\.\d+)', result)
         if not rttm:
@@ -301,7 +307,7 @@ class Ping:
 
         pingcmd = snmpcmd + " %s" % self.addr
 
-        result = subprocess.getoutput(pingcmd)
+        result = getoutput(pingcmd)
 
         rttm = re.search(r'rtt min/avg/max/stddev = (\d+)', result)
 
@@ -602,6 +608,40 @@ class Deadman:
             self.curs.erase_arrow(idx)
             self.curs.erase_pingtarget(idx + 1)
 
+    async def async_ping_targets(self):
+        await asyncio.gather(*[x.async_send() for x in self.targets])
+
+    def async_main(self):
+
+        _thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
+
+        # print blank line
+        for idx, target in enumerate(self.targets, 1):
+            self.curs.print_pingtarget(target, idx)
+
+        # main loop
+        while True:
+            self.curs.update_info(self.targets)
+            self.curs.erase_title()
+            self.curs.print_title()
+            self.curs.erase_reference()
+            self.curs.print_reference()
+
+            asyncio.run(self.async_ping_targets())
+
+            for idx, target in enumerate(self.targets, 1):
+                if target.state:
+                    self.curs.print_arrow(idx)
+                self.curs.erase_pingtarget(idx)
+                self.curs.print_pingtarget(target, idx)
+
+            arrow_visible_time = 0.8
+            time.sleep(arrow_visible_time)
+            for idx in range(1, len(self.targets) + 1):
+                self.curs.erase_arrow(idx)
+
+            time.sleep(PING_ALLTARGET_INTERVAL - arrow_visible_time)
+
 
     def refresh_window(self, signum, frame):
         self.curs.reinit()
@@ -688,7 +728,7 @@ def pingcmd(osname, ipv):
 
 
 
-def main(stdscr, configfile):
+def main(stdscr, configfile, async_mode):
 
     curses.start_color()
     curses.use_default_colors()
@@ -701,7 +741,10 @@ def main(stdscr, configfile):
     """
 
     deadman = Deadman(stdscr, configfile)
-    deadman.main()
+    if async_mode:
+        deadman.async_main()
+    else:
+        deadman.main()
 
     return
 
@@ -718,6 +761,8 @@ if __name__ == '__main__':
                         help = "scale of ping RTT bar gap, default 10 (ms)")
     parser.add_argument("-l", "--logging", default = None, dest = "logdir",
                         help = "directory for log files")
+    parser.add_argument("-a", "--async-mode", action = "store_true",
+                        help = "send ping asynchronously")
     parser.add_argument("configfile", type = argparse.FileType("r"),
                         help = "config file for deadman")
 
@@ -726,7 +771,7 @@ if __name__ == '__main__':
     LOGDIR    = args.logdir
 
     try:
-        curses.wrapper(main, args.configfile)
+        curses.wrapper(main, args.configfile, args.async_mode)
 
     except KeyboardInterrupt:
         sys.exit(0)
