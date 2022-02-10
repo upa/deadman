@@ -30,9 +30,13 @@ To change the targets, modify or create a config file.
 	kame            203.178.141.194
 	kame6           2001:200:dff:fff1:216:3eff:feb1:44d7
 
-Each line indicates a target host. Ping options, specifying source
-addresses and using netns, etc, are noted on the deadman.conf. For
-example, ping via a remote host through ssh is implemented.
+`deadman` with `-a` or `--async-mode` option sends ping to targets
+asynchronously.
+
+Each line in the config file indicates a target host. Ping options,
+specifying source addresses and using netns, etc, are noted on the
+deadman.conf. For example, ping via a remote host through ssh is
+implemented.
 
 	google-via-ssh  173.194.117.176 relay=X.X.X.X os=Linux
 
