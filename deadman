@@ -19,7 +19,6 @@ import signal
 import argparse
 import asyncio
 import concurrent.futures
-from shlex import quote
 from subprocess import DEVNULL, PIPE, getoutput
 import _thread
 
@@ -63,7 +62,6 @@ PING_SSH_TIMEOUT  = -2
 PING_SSH_FAILED   = -3
 
 LOGDIR = ""
-
 
 class PingResult:
 
@@ -112,8 +110,8 @@ class PingTarget:
         asyncio.run(self.async_send())
 
     async def async_send(self):
-        self.snt += 1
         res = await self.ping.async_send()
+        self.snt += 1
         self.consume_ping_result(res)
 
     def consume_ping_result(self, res):
@@ -178,7 +176,8 @@ class PingTarget:
 
 class Ping:
 
-    def __init__(self, addr, osname, timeout = 1, relay = None, source = None):
+    def __init__(self, addr, osname, timeout = 1.0,
+                 relay = None, source = None):
 
         self.addr = addr
         self.osname = osname
@@ -250,10 +249,14 @@ class Ping:
                                                     stdout = PIPE)
 
         try:
-            await asyncio.wait_for(proc.wait(), timeout = 1.0)
+            await asyncio.wait_for(proc.wait(), timeout = self.timeout)
         except asyncio.TimeoutError:
+            pass
+        try:
             proc.terminate()
-            await proc.wait()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
 
         (out, err) = await proc.communicate()
         result = out.decode("utf-8")
@@ -582,10 +585,8 @@ class Deadman:
         _thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
 
         # print blank line
-        num = 0
-        for target in self.targets:
-            num += 1
-            self.curs.print_pingtarget(target, num)
+        for idx, target in enumerate(self.targets, 1):
+            self.curs.print_pingtarget(target, idx)
 
         while True:
 
@@ -613,6 +614,11 @@ class Deadman:
 
     def async_main(self):
 
+        #n = len(self.targets)
+        #executor = concurrent.futures.ThreadPoolExecutor(max_workers = n)
+        #loop = asyncio.get_event_loop()
+        #loop.set_default_executor(executor)
+
         _thread.start_new_thread(self.curs.key_thread, tuple(self.targets))
 
         # print blank line
@@ -627,20 +633,22 @@ class Deadman:
             self.curs.erase_reference()
             self.curs.print_reference()
 
+            for idx, target in enumerate(self.targets, 1):
+                self.curs.print_arrow(idx)
+
+            start = time.time()
             asyncio.run(self.async_ping_targets())
 
+            elapsed = time.time() - start
+            if elapsed < 1.0:
+                time.sleep(1 - elapsed)
+
             for idx, target in enumerate(self.targets, 1):
-                if target.state:
-                    self.curs.print_arrow(idx)
                 self.curs.erase_pingtarget(idx)
                 self.curs.print_pingtarget(target, idx)
-
-            arrow_visible_time = 0.8
-            time.sleep(arrow_visible_time)
-            for idx in range(1, len(self.targets) + 1):
                 self.curs.erase_arrow(idx)
 
-            time.sleep(PING_ALLTARGET_INTERVAL - arrow_visible_time)
+            time.sleep(PING_ALLTARGET_INTERVAL)
 
 
     def refresh_window(self, signum, frame):
