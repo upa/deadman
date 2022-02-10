@@ -633,9 +633,6 @@ class Deadman:
             self.curs.erase_reference()
             self.curs.print_reference()
 
-            for idx, target in enumerate(self.targets, 1):
-                self.curs.print_arrow(idx)
-
             start = time.time()
             asyncio.run(self.async_ping_targets())
 
@@ -646,7 +643,6 @@ class Deadman:
             for idx, target in enumerate(self.targets, 1):
                 self.curs.erase_pingtarget(idx)
                 self.curs.print_pingtarget(target, idx)
-                self.curs.erase_arrow(idx)
 
             time.sleep(PING_ALLTARGET_INTERVAL)
 
@@ -723,7 +719,7 @@ def pingcmd(osname, ipv):
     """
     XXX: add new osname (uname -s) to support new OS.
 
-    Timeout is controlled by subprocess.check_output(cmd, timeout = X).
+    Timeout is controlled by asyncio.wait_for.
     As a result, there is no difference :0 I need cleanup.
     """
     if (osname == "Linux" or
@@ -767,10 +763,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--scale", type = int, default = 10,
                         help = "scale of ping RTT bar gap, default 10 (ms)")
-    parser.add_argument("-l", "--logging", default = None, dest = "logdir",
-                        help = "directory for log files")
     parser.add_argument("-a", "--async-mode", action = "store_true",
                         help = "send ping asynchronously")
+    parser.add_argument("-l", "--logging", default = None, dest = "logdir",
+                        help = "directory for log files")
     parser.add_argument("configfile", type = argparse.FileType("r"),
                         help = "config file for deadman")
 
