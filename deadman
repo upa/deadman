@@ -22,19 +22,18 @@ import concurrent.futures
 from subprocess import DEVNULL, PIPE, getoutput
 import _thread
 
-locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
-
 
 TITLE_PROGNAME = "Dead Man"
 TITLE_VERSION = "[ver 22.02.10]"
 TITLE_VERTIC_LENGTH = 4
 
+hostname = socket.gethostname()
+
 try:
-    TITLE_HOSTINFO = "From: %s (%s)" % (
-        getoutput("hostname"),
-        socket.gethostbyname(getoutput("hostname")))
+    TITLE_HOSTINFO = "From: %s (%s)" % (hostname,
+                                        socket.gethostbyname(hostname))
 except:
-    TITLE_HOSTINFO = "From: %s" % getoutput("hostname")
+    TITLE_HOSTINFO = "From: %s" % hostname
 
 
 ARROW = " > "
@@ -244,9 +243,13 @@ class Ping:
                                    self.osname)
 
         cmd += [self.addr]
+
+        env = dict(os.environ)
+        env["LC_ALL"] = "C"
         proc = await asyncio.create_subprocess_exec(*cmd,
                                                     stderr = DEVNULL,
-                                                    stdout = PIPE)
+                                                    stdout = PIPE,
+                                                    env = env)
 
         try:
             await asyncio.wait_for(proc.wait(), timeout = self.timeout)
