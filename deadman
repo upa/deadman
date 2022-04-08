@@ -21,6 +21,7 @@ import asyncio
 import concurrent.futures
 from subprocess import DEVNULL, PIPE, getoutput
 import _thread
+from shutil import which
 
 
 TITLE_PROGNAME = "Dead Man"
@@ -729,7 +730,9 @@ def pingcmd(osname, ipv):
         osname == "Darwin" or
         osname == "FreeBSD"):
         if ipv == 4: return ["ping", "-c", "1"]
-        if ipv == 6: return ["ping6", "-c", "1"]
+        if ipv == 6:
+            if which('ping6'): return ["ping6", "-c", "1"]
+            else: return ["ping", "-c", "1"]
 
     return None
 
