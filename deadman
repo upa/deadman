@@ -88,7 +88,7 @@ class PingTarget:
         self.rtt = 0 # current RTT
         self.tot = 0 # total of all RTT
         self.avg = 0 # average of all RTT
-        self.snt = 9997 # number of sent ping
+        self.snt = 0 # number of sent ping
         self.ttl = 0 # last ttl
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source)
