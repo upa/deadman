@@ -88,7 +88,7 @@ class PingTarget:
         self.rtt = 0 # current RTT
         self.tot = 0 # total of all RTT
         self.avg = 0 # average of all RTT
-        self.snt = 0 # number of sent ping
+        self.snt = 9997 # number of sent ping
         self.ttl = 0 # last ttl
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source)
@@ -381,7 +381,7 @@ class CursesCtrl():
 
         # update reference
         self.ref_start = self.start_address + self.length_address + 1
-        self.ref_length = len(" LOSS  TTL  RTT  AVG  SNT")
+        self.ref_length = len(" LOSS  RTT  AVG  SNT")
 
         # update result
         self.res_start = self.ref_start + self.ref_length + 2
@@ -449,7 +449,7 @@ class CursesCtrl():
     def print_reference(self):
         hostname_str = "HOSTNAME"
         address_str = "ADDRESS"
-        values_str = " LOSS  TTL  RTT  AVG  SNT  RESULT"
+        values_str = " LOSS  RTT  AVG  SNT  RESULT"
 
         # Print reference hostname and address
         self.waddstr(TITLE_VERTIC_LENGTH, len(ARROW),
@@ -479,11 +479,10 @@ class CursesCtrl():
         linenum = number + TITLE_VERTIC_LENGTH
 
         # Print values
-        values_str = " %3d%% %4d %4d %4d %4d  " % (int(target.lossrate),
-                                                   target.ttl,
-                                                   target.rtt,
-                                                   target.avg,
-                                                   target.snt)
+        values_str = " %3d%% %4d %4d %4d  " % (int(target.lossrate),
+                                               target.rtt,
+                                               target.avg,
+                                               target.snt)
 
         # Print ping line
         self.waddstr(linenum, self.start_hostname,
