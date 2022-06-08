@@ -62,6 +62,8 @@ PING_SSH_TIMEOUT  = -2
 PING_SSH_FAILED   = -3
 
 LOGDIR = ""
+BLINK_ARROW = False
+# ToDo: cleanup arguments handling
 
 class PingResult:
 
@@ -636,6 +638,10 @@ class Deadman:
             self.curs.erase_reference()
             self.curs.print_reference()
 
+            if BLINK_ARROW:
+                for idx, target in enumerate(self.targets, 1):
+                    self.curs.print_arrow(idx)
+
             start = time.time()
             asyncio.run(self.async_ping_targets())
 
@@ -646,6 +652,8 @@ class Deadman:
             for idx, target in enumerate(self.targets, 1):
                 self.curs.erase_pingtarget(idx)
                 self.curs.print_pingtarget(target, idx)
+                if BLINK_ARROW:
+                    self.curs.erase_arrow(idx)
 
             time.sleep(PING_ALLTARGET_INTERVAL)
 
@@ -770,6 +778,8 @@ if __name__ == '__main__':
                         help = "scale of ping RTT bar gap, default 10 (ms)")
     parser.add_argument("-a", "--async-mode", action = "store_true",
                         help = "send ping asynchronously")
+    parser.add_argument("-b", "--blink-arrow", action = "store_true",
+                        help = "blink arrow in async mode")
     parser.add_argument("-l", "--logging", default = None, dest = "logdir",
                         help = "directory for log files")
     parser.add_argument("configfile", type = argparse.FileType("r"),
@@ -777,7 +787,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     RTT_SCALE = args.scale
-    LOGDIR    = args.logdir
+    BLINK_ARROW = args.blink_arrow
+    LOGDIR = args.logdir
 
     try:
         curses.wrapper(main, args.configfile, args.async_mode)
