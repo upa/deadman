@@ -19,7 +19,7 @@ import signal
 import argparse
 import asyncio
 import concurrent.futures
-from subprocess import DEVNULL, PIPE, getoutput
+from subprocess import DEVNULL, PIPE, getoutput, getstatusoutput
 import _thread
 from shutil import which
 
@@ -78,7 +78,8 @@ class PingResult:
 
 class PingTarget:
 
-    def __init__(self, name, address, osname, relay = None, source = None):
+    def __init__(self, name, address, osname, relay = None, source = None,
+                 tcp = None):
 
         self.name = name
         self.addr = address
@@ -93,7 +94,8 @@ class PingTarget:
         self.snt = 0 # number of sent ping
         self.ttl = 0 # last ttl
         self.result = []
-        self.ping = Ping(self.addr, osname, relay = relay, source = source)
+        self.ping = Ping(self.addr, osname, relay = relay, source = source,
+                         tcp = tcp)
 
         return
 
@@ -179,13 +181,14 @@ class PingTarget:
 class Ping:
 
     def __init__(self, addr, osname, timeout = 1.0,
-                 relay = None, source = None):
+                 relay = None, source = None, tcp = None):
 
         self.addr = addr
         self.osname = osname
         self.relay = relay
         self.source = source
         self.timeout = timeout
+        self.tcp = tcp
 
         self.ipversion = whichipversion(self.addr)
         if not self.ipversion:
@@ -197,6 +200,9 @@ class Ping:
 
 
     async def async_send(self):
+        ## tcp-ping
+        if self.tcp:
+            return self.sendHPing()
 
         # Build 'ping' command arguments
         cmd = []
@@ -297,6 +303,33 @@ class Ping:
             if not "PING" in result:
                 res.errcode = PING_SSH_FAILED
 
+            res.errcode = PING_FAILED
+
+        return res
+
+    def sendHPing(self):
+        tcp_opts = {}
+        for opt in self.tcp.split(","):
+            tmp = opt.split(":")
+            tcp_opts[tmp[0]] = tmp[1]
+
+        pingcmd = "hping3 -S %s -p %s -c 1" % (self.addr, tcp_opts["dstport"])
+        st, result = getstatusoutput(pingcmd)
+
+        res = PingResult()
+        if st != 0:
+            res.sucess = False
+            res.errcode = PING_FAILED
+            return res
+
+        rttm = re.search(r'round-trip min/avg/max = (\d+)', result)
+        if rttm:
+            res.success = True
+            res.errcode = PING_SUCCESS
+            res.rtt = float(rttm.group(1))
+            res.ttl = -1
+        if not rttm:
+            res.sucess = False
             res.errcode = PING_FAILED
 
         return res
@@ -570,11 +603,11 @@ class Deadman:
         newtargets = []
         self.targetlist = self.gettargetlist(self.configfile)
 
-        for name, addr, relay, source in self.targetlist:
+        for name, addr, relay, source, tcp in self.targetlist:
             osname = relay.get('os', OSNAME)
 
             pt = PingTarget(name, addr, osname,
-                            relay = relay, source = source)
+                            relay = relay, source = source, tcp = tcp)
             idx = -1
             if pt in self.targets:
                 idx = self.targets.index(pt)
@@ -691,6 +724,7 @@ class Deadman:
             name = ss.pop(0)
             addr = ss.pop(0)
             source = None
+            tcp = None
             relay = {}
             for s in ss:
                 key, value = s.split("=")
@@ -699,8 +733,10 @@ class Deadman:
                     relay[key] = value
                 elif key == "source":
                     source = value
+                elif key == "tcp":
+                    tcp = value
 
-            targetlist.append([name, addr, relay, source])
+            targetlist.append([name, addr, relay, source, tcp])
 
         configfile.close()
 
