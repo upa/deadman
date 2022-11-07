@@ -48,8 +48,11 @@ RESULT_STR_LENGTH = 10
 DEFAULT_COLOR = 1
 UP_COLOR = 2
 DOWN_COLOR = 3
+SEC_ZERO_COLOR = 4
+SEC_TENS_COLOR = 5
 
 RTT_SCALE = 10
+TIMELINE = False
 
 SSH_CONNECT_TIMEOUT = 3
 
@@ -96,6 +99,7 @@ class PingTarget:
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source,
                          tcp = tcp)
+        self.localtime = []
 
         return
 
@@ -133,8 +137,10 @@ class PingTarget:
 
         self.lossrate = float(self.loss) / float(self.snt) * 100.0
         self.result.insert(0, self.get_result_char(res))
+        self.localtime.insert(0, time.localtime())
 
         while len(self.result) > RESULT_STR_LENGTH:
+            self.localtime.pop()
             self.result.pop()
 
         return
@@ -174,6 +180,7 @@ class PingTarget:
         self.snt = 0
         self.ttl = 0
         self.result = []
+        self.localtime = []
 
         return
 
@@ -468,6 +475,11 @@ class CursesCtrl():
         self.waddstr(1, spacelen, TITLE_VERSION, curses.A_BOLD)
         self.waddstr(2, len(ARROW),
                      "RTT Scale %dms. Keys: (r)efresh" % RTT_SCALE)
+        if TIMELINE:
+            self.disptime = time.localtime()
+            dispstr = time.strftime("%y/%m/%d %H:%M:%S", self.disptime)
+            spacelen = self.x - (len(ARROW) + len(dispstr))
+            self.waddstr(2, spacelen, dispstr)
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
         return
@@ -533,6 +545,11 @@ class CursesCtrl():
                 color = curses.color_pair(UP_COLOR)
             else:
                 color = curses.color_pair(DOWN_COLOR)
+            if TIMELINE:
+                if target.localtime[n].tm_sec == 0:
+                    color = curses.color_pair(SEC_ZERO_COLOR)
+                elif target.localtime[n].tm_sec % 10 == 0:
+                    color = curses.color_pair(SEC_TENS_COLOR)
 
             y, x = self.stdscr.getmaxyx()
             if self.res_start + n > x:
@@ -688,7 +705,8 @@ class Deadman:
                 if BLINK_ARROW:
                     self.curs.erase_arrow(idx)
 
-            time.sleep(PING_ALLTARGET_INTERVAL)
+            if TIMELINE is False:
+                time.sleep(PING_ALLTARGET_INTERVAL)
 
 
     def refresh_window(self, signum, frame):
@@ -788,6 +806,8 @@ def main(stdscr, configfile, async_mode):
     curses.init_pair(DEFAULT_COLOR, -1, -1)
     curses.init_pair(UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair(DOWN_COLOR, curses.COLOR_RED, -1)
+    curses.init_pair(SEC_TENS_COLOR, -1, curses.COLOR_BLUE)
+    curses.init_pair(SEC_ZERO_COLOR, -1, curses.COLOR_CYAN)
 
     """
     XXX: parse and validating config file shoud be done before curses.wrapper.
@@ -820,11 +840,14 @@ if __name__ == '__main__':
                         help = "directory for log files")
     parser.add_argument("configfile", type = argparse.FileType("r"),
                         help = "config file for deadman")
+    parser.add_argument("-t", "--timeline", action = "store_true",
+                        help = "display timeline every 10 seconds")
 
     args = parser.parse_args()
     RTT_SCALE = args.scale
     BLINK_ARROW = args.blink_arrow
     LOGDIR = args.logdir
+    TIMELINE = args.timeline
 
     try:
         curses.wrapper(main, args.configfile, args.async_mode)
