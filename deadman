@@ -118,6 +118,7 @@ class PingTarget:
         asyncio.run(self.async_send())
 
     async def async_send(self):
+        self.localtime.insert(0, time.localtime())
         res = await self.ping.async_send()
         self.snt += 1
         self.consume_ping_result(res)
@@ -137,7 +138,6 @@ class PingTarget:
 
         self.lossrate = float(self.loss) / float(self.snt) * 100.0
         self.result.insert(0, self.get_result_char(res))
-        self.localtime.insert(0, time.localtime())
 
         while len(self.result) > RESULT_STR_LENGTH:
             self.localtime.pop()
@@ -832,7 +832,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--scale", type = int, default = 10,
                         help = "scale of ping RTT bar gap, default 10 (ms)")
-    parser.add_argument("-a", "--async-mode", action = "store_true",
+    async_group = parser.add_argument_group('asynchronously')
+    async_group.add_argument("-a", "--async-mode", action = "store_true",
                         help = "send ping asynchronously")
     parser.add_argument("-b", "--blink-arrow", action = "store_true",
                         help = "blink arrow in async mode")
@@ -840,7 +841,7 @@ if __name__ == '__main__':
                         help = "directory for log files")
     parser.add_argument("configfile", type = argparse.FileType("r"),
                         help = "config file for deadman")
-    parser.add_argument("-t", "--timeline", action = "store_true",
+    async_group.add_argument("-t", "--timeline", action = "store_true", 
                         help = "display timeline every 10 seconds")
 
     args = parser.parse_args()
@@ -848,6 +849,8 @@ if __name__ == '__main__':
     BLINK_ARROW = args.blink_arrow
     LOGDIR = args.logdir
     TIMELINE = args.timeline
+    if TIMELINE:
+        args.async_mode = True
 
     try:
         curses.wrapper(main, args.configfile, args.async_mode)
