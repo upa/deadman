@@ -36,6 +36,20 @@ try:
 except:
     TITLE_HOSTINFO = "From: %s" % hostname
 
+GLOBAL_STEP = 0
+
+def increment_global_step():
+    global GLOBAL_STEP
+    GLOBAL_STEP += 1
+
+def get_title_hostinfo(with_wheel = False):
+    if not with_wheel:
+        return TITLE_HOSTINFO
+    else:
+        global GLOBAL_STEP
+        return TITLE_HOSTINFO + " " + ["|", "/", "-", "\\"][GLOBAL_STEP % 4]
+
+
 
 ARROW = " > "
 REAR  = "   "
@@ -455,14 +469,15 @@ class CursesCtrl():
             pass
 
 
-    def print_title(self):
+    def print_title(self, with_wheel = False):
 
         # Print Program name on center of top line
         spacelen = int((self.x - len(TITLE_PROGNAME)) / 2)
         self.waddstr(0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
 
         # Print hostname and version number
-        self.waddstr(1, self.start_hostname, TITLE_HOSTINFO, curses.A_BOLD)
+        hostinfo = get_title_hostinfo(with_wheel = with_wheel)
+        self.waddstr(1, self.start_hostname, hostinfo, curses.A_BOLD)
 
         spacelen = self.x - (len(ARROW) + len(TITLE_VERSION))
         self.waddstr(1, spacelen, TITLE_VERSION, curses.A_BOLD)
@@ -666,8 +681,11 @@ class Deadman:
         # main loop
         while True:
             self.curs.update_info(self.targets)
+
+            increment_global_step()
             self.curs.erase_title()
-            self.curs.print_title()
+            self.curs.print_title(with_wheel = True)
+
             self.curs.erase_reference()
             self.curs.print_reference()
 
@@ -688,6 +706,9 @@ class Deadman:
                 if BLINK_ARROW:
                     self.curs.erase_arrow(idx)
 
+            increment_global_step()
+            self.curs.erase_title()
+            self.curs.print_title(with_wheel = True)
             time.sleep(PING_ALLTARGET_INTERVAL)
 
 
