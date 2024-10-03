@@ -732,10 +732,10 @@ class Deadman:
 
         for line in configfile:
 
-            line = re.sub('\t', ' ', line)
-            line = re.sub('\s+', ' ', line)
-            line = re.sub('^#.*', '', line)
-            line = re.sub(';\s*#', '', line)
+            line = re.sub(r'\t', ' ', line)
+            line = re.sub(r'\s+', ' ', line)
+            line = re.sub(r'^#.*', '', line)
+            line = re.sub(r';\s*#', '', line)
             line = line.strip()
 
             if line == "":
