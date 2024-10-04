@@ -191,6 +191,10 @@ class PingTarget:
 
         return
 
+class Separator:
+    pass
+
+SEPARATOR = Separator()
 
 class Ping:
 
@@ -395,6 +399,9 @@ class CursesCtrl():
 
             if ch == ord('r'):
                 for idx, target in enumerate(args, 1):
+                    if target == SEPARATOR:
+                        continue
+
                     target.refresh()
                     self.erase_pingtarget(idx)
                     self.print_pingtarget(target, idx)
@@ -412,6 +419,7 @@ class CursesCtrl():
         # update hostname
         hlen = len("HOSTNAME ")
         for target in targets:
+            if target == SEPARATOR: continue
             if hlen < len(target.name): hlen = len(target.name)
         if hlen > MAX_HOSTNAME_LENGTH: hlen = MAX_HOSTNAME_LENGTH
 
@@ -421,6 +429,7 @@ class CursesCtrl():
         # update address
         alen = len("ADDRESS ")
         for target in targets:
+            if target == SEPARATOR: continue
             if alen < len(target.addr): alen = len(target.addr)
         if alen > MAX_ADDRESS_LENGTH: alen = MAX_ADDRESS_LENGTH
         else: alen += 5
@@ -519,8 +528,14 @@ class CursesCtrl():
         self.waddstr(TITLE_VERTIC_LENGTH, 0, " " * self.x)
         return
 
-    def print_pingtarget(self, target, number):
+    def print_separator(self, number):
+        linenum = number + TITLE_VERTIC_LENGTH
+        self.waddstr(linenum, self.start_hostname, "-" * (self.x - self.start_hostname - len(ARROW)))
+        self.stdscr.move(0, 0)
+        self.stdscr.refresh()
+        return
 
+    def print_pingtarget(self, target, number):
         if target.state:
             line_color = curses.color_pair(DEFAULT_COLOR)
         else:
@@ -621,8 +636,11 @@ class Deadman:
         for name, addr, relay, source, tcp in self.targetlist:
             osname = relay.get('os', OSNAME)
 
-            pt = PingTarget(name, addr, osname,
-                            relay = relay, source = source, tcp = tcp)
+            if re.fullmatch(r'-+', name):
+                pt = SEPARATOR
+            else:
+                pt = PingTarget(name, addr, osname,
+                                relay = relay, source = source, tcp = tcp)
             idx = -1
             if pt in self.targets:
                 idx = self.targets.index(pt)
@@ -639,7 +657,10 @@ class Deadman:
 
         # print blank line
         for idx, target in enumerate(self.targets, 1):
-            self.curs.print_pingtarget(target, idx)
+            if target == SEPARATOR:
+                self.curs.print_separator(idx)
+            else:
+                self.curs.print_pingtarget(target, idx)
 
         while True:
 
@@ -650,6 +671,9 @@ class Deadman:
             self.curs.print_reference()
 
             for idx, target in enumerate(self.targets, 1):
+                if target == SEPARATOR:
+                    continue
+
                 self.curs.print_arrow(idx)
                 target.send()
                 self.curs.erase_pingtarget(idx)
@@ -663,7 +687,7 @@ class Deadman:
             self.curs.erase_pingtarget(idx + 1)
 
     async def async_ping_targets(self):
-        await asyncio.gather(*[x.async_send() for x in self.targets])
+        await asyncio.gather(*[x.async_send() for x in self.targets if x != SEPARATOR])
 
     def async_main(self):
 
@@ -676,7 +700,10 @@ class Deadman:
 
         # print blank line
         for idx, target in enumerate(self.targets, 1):
-            self.curs.print_pingtarget(target, idx)
+            if target == SEPARATOR:
+                self.curs.print_separator(idx)
+            else:
+                self.curs.print_pingtarget(target, idx)
 
         # main loop
         while True:
@@ -691,6 +718,9 @@ class Deadman:
 
             if BLINK_ARROW:
                 for idx, target in enumerate(self.targets, 1):
+                    if target == SEPARATOR:
+                        continue
+
                     self.curs.print_arrow(idx)
 
             start = time.time()
@@ -701,6 +731,9 @@ class Deadman:
                 time.sleep(1 - elapsed)
 
             for idx, target in enumerate(self.targets, 1):
+                if target == SEPARATOR:
+                    continue
+
                 self.curs.erase_pingtarget(idx)
                 self.curs.print_pingtarget(target, idx)
                 if BLINK_ARROW:
@@ -719,6 +752,9 @@ class Deadman:
         self.curs.print_reference()
 
         for idx, target in enumerate(self.targets, 1):
+            if target == SEPARATOR:
+                self.curs.print_separator(idx)
+            else:
                 self.curs.print_pingtarget(target, idx)
 
 
@@ -732,10 +768,10 @@ class Deadman:
 
         for line in configfile:
 
-            line = re.sub('\t', ' ', line)
-            line = re.sub('\s+', ' ', line)
-            line = re.sub('^#.*', '', line)
-            line = re.sub(';\s*#', '', line)
+            line = re.sub(r'\t', ' ', line)
+            line = re.sub(r'\s+', ' ', line)
+            line = re.sub(r'^#.*', '', line)
+            line = re.sub(r';\s*#', '', line)
             line = line.strip()
 
             if line == "":
@@ -743,7 +779,7 @@ class Deadman:
 
             ss = line.split(' ')
             name = ss.pop(0)
-            addr = ss.pop(0)
+            addr = ss.pop(0) if ss else None
             source = None
             tcp = None
             relay = {}
