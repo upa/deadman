@@ -116,7 +116,7 @@ class PingTarget:
     def __str__(self):
         s = [self.name, self.addr]
         if self.relay:
-            s.append(self.relay)
+            s.append(str(self.relay))
         if self.source:
             s.append(self.source)
         return ':'.join(s)
@@ -238,6 +238,10 @@ class Ping:
             if self.relay["via"] == "vrf":
                 ## ping via VRF
                 cmd += ["ip", "vrf", "exec", self.relay["relay"]]
+
+            if self.relay["via"] == "routeros_api":
+                ## ping via RouterOS REST API
+                return self.sendRouterOSPing()
 
         elif self.relay:
             ## SSH
@@ -382,6 +386,68 @@ class Ping:
         if not rttm:
             res.sucess = False
             res.errcode = PING_FAILED
+
+        return res
+
+    def sendRouterOSPing(self):
+        res = PingResult()
+
+        try:
+            import requests
+            import urllib3
+            urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
+        except ModuleNotFoundError:
+            res.success = False
+            res.errcode = PING_FAILED
+
+            return res
+
+        if "username" not in self.relay or "password" not in self.relay:
+            raise RuntimeError("'username' and 'password' is required for %s" %
+                               self.addr)
+
+        username = self.relay["username"]
+        password = self.relay["password"]
+        if "relay" not in self.relay:
+            raise RuntimeError("'relay' is not specified for %s" % self.addr)
+
+        if "method" in self.relay:
+            method = self.relay["method"]
+        else:
+            method = "https"
+
+        if "verify" in self.relay:
+            verify = self.relay["verify"].lower() == "true"
+        else:
+            verify = True
+
+        url = "%s://%s/rest/ping" % (method, self.relay["relay"])
+        payload = {
+                "address": self.addr,
+                "count": 1
+        }
+
+        try:
+            resp = requests.post(url, auth=(username, password), json=payload, verify=verify)
+            resp.raise_for_status()
+        except Exception as e:
+            res.success = False
+            res.errcode = PING_FAILED
+
+            return res
+
+        ping_details = resp.json()
+
+        pt = re.search(r"(\d+)ms(\d+)us", ping_details[0]["min-rtt"])
+        res.success = True
+        res.errcode = PING_SUCCESS
+
+        if pt:
+            res.rtt = round(float(pt.group(1)) + float(pt.group(2)) / 1000.0)
+            res.ttl = ping_details[0]["ttl"]
+        else:
+            res.rtt = 0
+            res.ttl = -1
 
         return res
 
@@ -786,7 +852,8 @@ class Deadman:
             for s in ss:
                 key, value = s.split("=")
                 if key in ("os", "relay", "via", "community",
-                           "netns", "user", "key"):
+                           "netns", "user", "key", "method",
+                           "username", "password", "verify"):
                     relay[key] = value
                 elif key == "source":
                     source = value
