@@ -438,7 +438,10 @@ class Ping:
 
         ping_details = resp.json()
 
-        pt = re.search(r"(\d+)ms(\d+)us", ping_details[0]["min-rtt"])
+        pt = None
+        if len(ping_details) > 0 and "min-rtt" in ping_details[0]:
+            pt = re.search(r"(\d+)ms(\d+)us", ping_details[0]["min-rtt"])
+
         res.success = True
         res.errcode = PING_SUCCESS
 
