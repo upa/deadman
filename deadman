@@ -444,13 +444,23 @@ class Ping:
 
             return res
 
-        pt = re.search(r"(\d+)ms(\d+)us", ping_details[0]["min-rtt"])
+        pt = re.search(r"((\d+)ms)?(\d+)us", ping_details[0]["min-rtt"])
 
         res.success = True
         res.errcode = PING_SUCCESS
 
         if pt:
-            res.rtt = round(float(pt.group(1)) + float(pt.group(2)) / 1000.0)
+            if pt.group(2):
+                ms = float(pt.group(2))
+            else:
+                ms = 0.0
+
+            if pt.group(3):
+                us = float(pt.group(3))
+            else:
+                us = 0.0
+
+            res.rtt = round(ms + us / 1000.0)
             res.ttl = ping_details[0]["ttl"]
         else:
             res.rtt = 0
