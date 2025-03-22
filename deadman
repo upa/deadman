@@ -460,8 +460,8 @@ class Ping:
             else:
                 us = 0.0
 
-            res.rtt = round(ms + us / 1000.0)
-            res.ttl = ping_details[0]["ttl"]
+            res.rtt = float(round(ms + us / 1000.0))
+            res.ttl = int(ping_details[0]["ttl"])
         else:
             res.rtt = 0
             res.ttl = -1
