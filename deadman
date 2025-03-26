@@ -921,6 +921,27 @@ def pingcmd(osname, ipv):
     return None
 
 
+def parse_and_validate_config(configfile):
+
+    try:
+        with open(configfile, 'r') as file:
+            for line in file:
+                stripped_line = line.strip()
+                # Only check without '#'
+                if not stripped_line.startswith('#'):
+                    # Check if hping3 is installed and if the user has root privileges
+                    if 'tcp=dstport:' in stripped_line:
+                        if not which('hping3'):
+                            print("hping3 is not installed. Please install it to use tcp based ping.")
+                            sys.exit(-1)
+                        if os.geteuid() != 0:
+                            print("Root privileges are required to use tcp based ping. Please run as root.")
+                            sys.exit(-1)
+    except FileNotFoundError:
+        print(f"Configuration file {configfile} not found.")
+        sys.exit(-1)
+    
+    return None
 
 def main(stdscr, configfile, async_mode):
 
@@ -930,9 +951,6 @@ def main(stdscr, configfile, async_mode):
     curses.init_pair(UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair(DOWN_COLOR, curses.COLOR_RED, -1)
 
-    """
-    XXX: parse and validating config file shoud be done before curses.wrapper.
-    """
 
     deadman = Deadman(stdscr, configfile)
     if async_mode:
@@ -966,6 +984,9 @@ if __name__ == '__main__':
     RTT_SCALE = args.scale
     BLINK_ARROW = args.blink_arrow
     LOGDIR = args.logdir
+
+    # Parse and validate config file
+    parse_and_validate_config(args.configfile.name)
 
     try:
         curses.wrapper(main, args.configfile, args.async_mode)
