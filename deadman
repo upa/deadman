@@ -19,6 +19,7 @@ import signal
 import argparse
 import asyncio
 import concurrent.futures
+import platform
 from subprocess import DEVNULL, PIPE, getoutput, getstatusoutput
 import _thread
 from shutil import which
@@ -28,30 +29,56 @@ TITLE_PROGNAME = "Dead Man"
 TITLE_VERSION = "[ver 22.02.10]"
 TITLE_VERTIC_LENGTH = 4
 
-hostname = socket.gethostname()
+# Lazy-load hostname to avoid blocking DNS lookup at startup
+_hostname_cache = None
+_hostinfo_cache = None
 
-try:
-    TITLE_HOSTINFO = "From: %s (%s)" % (hostname,
-                                        socket.gethostbyname(hostname))
-except:
-    TITLE_HOSTINFO = "From: %s" % hostname
+def get_hostname():
+    global _hostname_cache
+    if _hostname_cache is None:
+        _hostname_cache = socket.gethostname()
+    return _hostname_cache
+
+def get_hostinfo_lazy():
+    global _hostinfo_cache
+    if _hostinfo_cache is None:
+        hostname = get_hostname()
+        try:
+            # Quick timeout to avoid blocking
+            socket.setdefaulttimeout(0.5)
+            ip = socket.gethostbyname(hostname)
+            _hostinfo_cache = "From: %s (%s)" % (hostname, ip)
+            socket.setdefaulttimeout(None)
+        except:
+            _hostinfo_cache = "From: %s" % hostname
+    return _hostinfo_cache
 
 GLOBAL_STEP = 0
+QUIT_FLAG = False
 
 def increment_global_step():
     global GLOBAL_STEP
     GLOBAL_STEP += 1
 
+def set_quit_flag():
+    global QUIT_FLAG
+    QUIT_FLAG = True
+
+def get_quit_flag():
+    global QUIT_FLAG
+    return QUIT_FLAG
+
 def get_title_hostinfo(with_wheel = False):
+    hostinfo = get_hostinfo_lazy()
     if not with_wheel:
-        return TITLE_HOSTINFO
+        return hostinfo
     else:
         global GLOBAL_STEP
-        return TITLE_HOSTINFO + " " + ["|", "/", "-", "\\"][GLOBAL_STEP % 4]
+        return hostinfo + " " + ["|", "/", "-", "\\"][GLOBAL_STEP % 4]
 
 
 
-ARROW = " > "
+ARROW = " ▶ "
 REAR  = "   "
 PING_INTERVAL = 0.05
 PING_ALLTARGET_INTERVAL = 1
@@ -59,15 +86,33 @@ MAX_HOSTNAME_LENGTH = 20
 MAX_ADDRESS_LENGTH = 40
 RESULT_STR_LENGTH = 10
 
+# Status symbols
+STATUS_UP = "✓"
+STATUS_DOWN = "✗"
+STATUS_TIMEOUT = "⏱"
+STATUS_SSH_FAIL = "⚠"
+
 DEFAULT_COLOR = 1
 UP_COLOR = 2
 DOWN_COLOR = 3
+FAST_COLOR = 4      # < 10ms - bright green
+MEDIUM_COLOR = 5    # 10-50ms - yellow
+SLOW_COLOR = 6      # 50-100ms - orange
+VSLOW_COLOR = 7     # > 100ms - red
+HEADER_COLOR = 8    # cyan for headers
+SEPARATOR_COLOR = 9 # blue for separators
 
 RTT_SCALE = 10
 
 SSH_CONNECT_TIMEOUT = 3
 
-OSNAME = getoutput("uname -s")
+# Fast OS detection using platform module instead of subprocess
+_os_mapping = {
+    'Darwin': 'Darwin',
+    'Linux': 'Linux',
+    'FreeBSD': 'FreeBSD',
+}
+OSNAME = _os_mapping.get(platform.system(), platform.system())
 
 
 PING_SUCCESS      = 0
@@ -157,15 +202,15 @@ class PingTarget:
 
         if res.errcode == PING_SSH_TIMEOUT:
             # ssh timeout
-            return "t"
+            return "⏱"
 
         if res.errcode == PING_SSH_FAILED:
             # ssh failed
-            return "s"
+            return "⚠"
 
         if res.errcode == PING_FAILED:
             # ping timeout
-            return "X"
+            return "✗"
 
         if res.rtt < RTT_SCALE * 1: return "▁"
         if res.rtt < RTT_SCALE * 2: return "▂"
@@ -473,12 +518,29 @@ class CursesCtrl():
 
     def __init__(self, stdscr):
         self.stdscr = stdscr
+        # Initialize screen dimensions
+        self.y, self.x = stdscr.getmaxyx()
+        # Initialize layout variables (will be updated by update_info)
+        self.start_arrow = 0
+        self.length_arrow = len(ARROW)
+        self.start_hostname = self.start_arrow + self.length_arrow
+        self.length_hostname = MAX_HOSTNAME_LENGTH
+        self.start_address = self.start_hostname + self.length_hostname + 1
+        self.length_address = MAX_ADDRESS_LENGTH
+        self.ref_start = self.start_address + self.length_address + 1
+        self.ref_length = len(" LOSS  RTT  AVG  SNT")
+        self.res_start = self.ref_start + self.ref_length + 2
+        self.res_length = 10
         return
 
     def key_thread(self, *args):
 
         while True:
             ch = self.stdscr.getch()
+
+            if ch == ord('q') or ch == ord('Q'):
+                set_quit_flag()
+                break
 
             if ch == ord('r'):
                 for idx, target in enumerate(args, 1):
@@ -565,7 +627,7 @@ class CursesCtrl():
 
         # Print Program name on center of top line
         spacelen = int((self.x - len(TITLE_PROGNAME)) / 2)
-        self.waddstr(0, spacelen, TITLE_PROGNAME, curses.A_BOLD)
+        self.waddstr(0, spacelen, TITLE_PROGNAME, curses.color_pair(HEADER_COLOR) | curses.A_BOLD)
 
         # Print hostname and version number
         hostinfo = get_title_hostinfo(with_wheel = with_wheel)
@@ -574,7 +636,7 @@ class CursesCtrl():
         spacelen = self.x - (len(ARROW) + len(TITLE_VERSION))
         self.waddstr(1, spacelen, TITLE_VERSION, curses.A_BOLD)
         self.waddstr(2, len(ARROW),
-                     "RTT Scale %dms. Keys: (r)efresh" % RTT_SCALE)
+                     "RTT Scale %dms │ Keys: (r)efresh, (q)uit" % RTT_SCALE, curses.color_pair(HEADER_COLOR))
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
         return
@@ -593,15 +655,18 @@ class CursesCtrl():
         address_str = "ADDRESS"
         values_str = " LOSS  RTT  AVG  SNT  RESULT"
 
+        # Print separator line before headers
+        self.waddstr(TITLE_VERTIC_LENGTH - 1, 0, "─" * self.x, curses.color_pair(SEPARATOR_COLOR))
+
         # Print reference hostname and address
         self.waddstr(TITLE_VERTIC_LENGTH, len(ARROW),
-                     hostname_str, curses.A_BOLD)
+                     hostname_str, curses.color_pair(HEADER_COLOR) | curses.A_BOLD)
         self.waddstr(TITLE_VERTIC_LENGTH, self.start_address,
-                     address_str, curses.A_BOLD)
+                     address_str, curses.color_pair(HEADER_COLOR) | curses.A_BOLD)
 
         # Print references of values
         self.waddstr(TITLE_VERTIC_LENGTH, self.ref_start,
-                     values_str, curses.A_BOLD)
+                     values_str, curses.color_pair(HEADER_COLOR) | curses.A_BOLD)
 
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
@@ -613,7 +678,8 @@ class CursesCtrl():
 
     def print_separator(self, number):
         linenum = number + TITLE_VERTIC_LENGTH
-        self.waddstr(linenum, self.start_hostname, "-" * (self.x - self.start_hostname - len(ARROW)))
+        sep_line = "─" * (self.x - self.start_hostname - len(ARROW))
+        self.waddstr(linenum, self.start_hostname, sep_line, curses.color_pair(SEPARATOR_COLOR))
         self.stdscr.move(0, 0)
         self.stdscr.refresh()
         return
@@ -626,11 +692,31 @@ class CursesCtrl():
 
         linenum = number + TITLE_VERTIC_LENGTH
 
-        # Print values
-        values_str = " %3d%% %4d %4d %4d  " % (int(target.lossrate),
-                                               target.rtt,
-                                               target.avg,
-                                               target.snt)
+        # Determine status symbol
+        if target.lossrate == 100:
+            status = STATUS_DOWN
+            status_color = curses.color_pair(DOWN_COLOR)
+        elif target.lossrate > 0:
+            status = STATUS_TIMEOUT
+            status_color = curses.color_pair(SLOW_COLOR)
+        else:
+            status = STATUS_UP
+            status_color = curses.color_pair(UP_COLOR)
+
+        # Determine RTT color based on latency
+        if target.rtt == 0:
+            rtt_color = line_color
+        elif target.rtt < 10:
+            rtt_color = curses.color_pair(FAST_COLOR)
+        elif target.rtt < 50:
+            rtt_color = curses.color_pair(MEDIUM_COLOR)
+        elif target.rtt < 100:
+            rtt_color = curses.color_pair(SLOW_COLOR)
+        else:
+            rtt_color = curses.color_pair(VSLOW_COLOR)
+
+        # Print status symbol
+        self.waddstr(linenum, 0, status, status_color | curses.A_BOLD)
 
         # Print ping line
         self.waddstr(linenum, self.start_hostname,
@@ -638,19 +724,35 @@ class CursesCtrl():
         self.waddstr(linenum, self.start_address,
                      target.addr[0:self.length_address], line_color)
 
-        self.waddstr(linenum, self.ref_start, values_str, line_color)
+        # Print values with colored RTT
+        loss_str = " %3d%% " % int(target.lossrate)
+        rtt_str = "%4d" % target.rtt
+        rest_str = " %4d %4d  " % (target.avg, target.snt)
+
+        self.waddstr(linenum, self.ref_start, loss_str, line_color)
+        self.waddstr(linenum, self.ref_start + len(loss_str), rtt_str, rtt_color | curses.A_BOLD)
+        self.waddstr(linenum, self.ref_start + len(loss_str) + len(rtt_str), rest_str, line_color)
 
 
         for n in range(len(target.result)):
-            if not target.result[n] in ("X", "t", "s"):
-                color = curses.color_pair(UP_COLOR)
-            else:
+            char = target.result[n]
+            if char in ("✗", "⏱", "⚠"):
                 color = curses.color_pair(DOWN_COLOR)
+            else:
+                # Color based on RTT bar height
+                if char == "▁":
+                    color = curses.color_pair(FAST_COLOR)
+                elif char in ("▂", "▃"):
+                    color = curses.color_pair(MEDIUM_COLOR)
+                elif char in ("▄", "▅"):
+                    color = curses.color_pair(SLOW_COLOR)
+                else:  # ▆, ▇, █
+                    color = curses.color_pair(VSLOW_COLOR)
 
             y, x = self.stdscr.getmaxyx()
             if self.res_start + n > x:
                 continue
-            self.waddstr(linenum, self.res_start + n, target.result[n], color)
+            self.waddstr(linenum, self.res_start + n, char, color | curses.A_BOLD)
 
         y, x = self.stdscr.getmaxyx()
         self.waddstr(linenum, x - len(REAR), REAR)
@@ -702,13 +804,28 @@ class Deadman:
         self.configfile = configfile
         self.targets = []
 
-        self.addtargets()
-
+        # Setup signals first
         signal.signal(signal.SIGWINCH, self.refresh_window)
         signal.signal(signal.SIGHUP, self.updatetargets)
         signal.siginterrupt(signal.SIGHUP, False)
+        signal.signal(signal.SIGINT, self.handle_signal)
+        signal.signal(signal.SIGTERM, self.handle_signal)
 
+        # Show UI immediately before loading targets
         self.curs.print_title()
+
+        # Show loading message
+        y, x = stdscr.getmaxyx()
+        loading_msg = "Loading targets..."
+        stdscr.addstr(TITLE_VERTIC_LENGTH + 1, len(ARROW), loading_msg, curses.color_pair(HEADER_COLOR))
+        stdscr.refresh()
+
+        # Now load targets (may take time for DNS lookups)
+        self.addtargets()
+
+        # Clear loading message
+        stdscr.addstr(TITLE_VERTIC_LENGTH + 1, len(ARROW), " " * len(loading_msg))
+        stdscr.refresh()
 
         return
 
@@ -745,7 +862,7 @@ class Deadman:
             else:
                 self.curs.print_pingtarget(target, idx)
 
-        while True:
+        while not get_quit_flag():
 
             self.curs.update_info(self.targets)
             self.curs.erase_title()
@@ -757,12 +874,18 @@ class Deadman:
                 if target == SEPARATOR:
                     continue
 
+                if get_quit_flag():
+                    break
+
                 self.curs.print_arrow(idx)
                 target.send()
                 self.curs.erase_pingtarget(idx)
                 self.curs.print_pingtarget(target, idx)
                 time.sleep(PING_INTERVAL)
                 self.curs.erase_arrow(idx)
+
+            if get_quit_flag():
+                break
 
             self.curs.print_arrow(idx)
             time.sleep(PING_ALLTARGET_INTERVAL)
@@ -789,7 +912,7 @@ class Deadman:
                 self.curs.print_pingtarget(target, idx)
 
         # main loop
-        while True:
+        while not get_quit_flag():
             self.curs.update_info(self.targets)
 
             increment_global_step()
@@ -827,6 +950,9 @@ class Deadman:
             self.curs.print_title(with_wheel = True)
             time.sleep(PING_ALLTARGET_INTERVAL)
 
+
+    def handle_signal(self, signum, frame):
+        set_quit_flag()
 
     def refresh_window(self, signum, frame):
         self.curs.reinit()
@@ -886,19 +1012,42 @@ class Deadman:
 
 
 # mics
+# Cache IP version lookups to avoid repeated DNS queries
+_ipversion_cache = {}
+
 def whichipversion(addr):
+    if addr in _ipversion_cache:
+        return _ipversion_cache[addr]
 
     try:
-        # use the first addrinfo if addr is domain name
+        # Quick check if it's a raw IP address first (fastest)
+        try:
+            socket.inet_pton(socket.AF_INET, addr)
+            _ipversion_cache[addr] = 4
+            return 4
+        except:
+            pass
+
+        try:
+            socket.inet_pton(socket.AF_INET6, addr)
+            _ipversion_cache[addr] = 6
+            return 6
+        except:
+            pass
+
+        # If not a raw IP, do DNS lookup
         (family, _, _, _, saddr) = socket.getaddrinfo(addr, None)[0]
+        if family == socket.AF_INET:
+            _ipversion_cache[addr] = 4
+            return 4
+        elif family == socket.AF_INET6:
+            _ipversion_cache[addr] = 6
+            return 6
     except:
+        _ipversion_cache[addr] = False
         return False
 
-    if family == socket.AF_INET:
-        return 4
-    elif family == socket.AF_INET6:
-        return 6
-
+    _ipversion_cache[addr] = False
     return False
 
 
@@ -929,6 +1078,17 @@ def main(stdscr, configfile, async_mode):
     curses.init_pair(DEFAULT_COLOR, -1, -1)
     curses.init_pair(UP_COLOR, curses.COLOR_GREEN, -1)
     curses.init_pair(DOWN_COLOR, curses.COLOR_RED, -1)
+    curses.init_pair(FAST_COLOR, curses.COLOR_GREEN, -1)
+    curses.init_pair(MEDIUM_COLOR, curses.COLOR_YELLOW, -1)
+    # Use yellow for SLOW_COLOR if terminal doesn't support 256 colors
+    try:
+        slow_color = 214 if curses.COLORS >= 256 else curses.COLOR_YELLOW
+        curses.init_pair(SLOW_COLOR, slow_color, -1)
+    except:
+        curses.init_pair(SLOW_COLOR, curses.COLOR_YELLOW, -1)
+    curses.init_pair(VSLOW_COLOR, curses.COLOR_RED, -1)
+    curses.init_pair(HEADER_COLOR, curses.COLOR_CYAN, -1)
+    curses.init_pair(SEPARATOR_COLOR, curses.COLOR_BLUE, -1)
 
     """
     XXX: parse and validating config file shoud be done before curses.wrapper.
