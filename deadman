@@ -77,6 +77,9 @@ PING_SSH_FAILED   = -3
 
 LOGDIR = ""
 BLINK_ARROW = False
+PING_OPTIONS = []     # extra ping options from command line, applied to all targets
+PING_OPTIONS_V4 = []  # extra ping options applied to IPv4 targets only
+PING_OPTIONS_V6 = []  # extra ping options applied to IPv6 targets only
 # ToDo: cleanup arguments handling
 
 class PingResult:
@@ -93,7 +96,7 @@ class PingResult:
 class PingTarget:
 
     def __init__(self, name, address, osname, relay = None, source = None,
-                 tcp = None):
+                 tcp = None, pingopt = None):
 
         self.name = name
         self.addr = address
@@ -109,7 +112,7 @@ class PingTarget:
         self.ttl = 0 # last ttl
         self.result = []
         self.ping = Ping(self.addr, osname, relay = relay, source = source,
-                         tcp = tcp)
+                         tcp = tcp, pingopt = pingopt)
 
         return
 
@@ -199,7 +202,7 @@ SEPARATOR = Separator()
 class Ping:
 
     def __init__(self, addr, osname, timeout = 1.0,
-                 relay = None, source = None, tcp = None):
+                 relay = None, source = None, tcp = None, pingopt = None):
 
         self.addr = addr
         self.osname = osname
@@ -207,6 +210,7 @@ class Ping:
         self.source = source
         self.timeout = timeout
         self.tcp = tcp
+        self.pingopt = pingopt or []
 
         self.ipversion = whichipversion(self.addr)
         if not self.ipversion:
@@ -262,6 +266,15 @@ class Ping:
             cmd += [self.relay["relay"]]
 
         cmd += self.pingcmd
+
+        # extra ping options: command line (common, then IP version-specific),
+        # finally per-target config
+        cmd += PING_OPTIONS
+        if self.ipversion == 4:
+            cmd += PING_OPTIONS_V4
+        elif self.ipversion == 6:
+            cmd += PING_OPTIONS_V6
+        cmd += self.pingopt
 
         # specifying source interface
         if self.source:
@@ -716,14 +729,15 @@ class Deadman:
         newtargets = []
         self.targetlist = self.gettargetlist(self.configfile)
 
-        for name, addr, relay, source, tcp in self.targetlist:
+        for name, addr, relay, source, tcp, pingopt in self.targetlist:
             osname = relay.get('os', OSNAME)
 
             if re.fullmatch(r'-+', name):
                 pt = SEPARATOR
             else:
                 pt = PingTarget(name, addr, osname,
-                                relay = relay, source = source, tcp = tcp)
+                                relay = relay, source = source, tcp = tcp,
+                                pingopt = pingopt)
             idx = -1
             if pt in self.targets:
                 idx = self.targets.index(pt)
@@ -865,6 +879,7 @@ class Deadman:
             addr = ss.pop(0) if ss else None
             source = None
             tcp = None
+            pingopt = []
             relay = {}
             for s in ss:
                 key, value = s.split("=")
@@ -876,8 +891,10 @@ class Deadman:
                     source = value
                 elif key == "tcp":
                     tcp = value
+                elif key == "pingopt":
+                    pingopt = value.split(",")
 
-            targetlist.append([name, addr, relay, source, tcp])
+            targetlist.append([name, addr, relay, source, tcp, pingopt])
 
         configfile.close()
 
@@ -959,6 +976,20 @@ if __name__ == '__main__':
                         help = "blink arrow in async mode")
     parser.add_argument("-l", "--logging", default = None, dest = "logdir",
                         help = "directory for log files")
+    parser.add_argument("-o", "--ping-options", default = "",
+                        dest = "pingopts",
+                        help = "extra options passed to the ping command for "
+                               "all targets, given as a single string. Since "
+                               "the value starts with '-', use the '=' form, "
+                               "e.g. -o=\"-s 1000 -w 2\"")
+    parser.add_argument("--ping-options-v4", default = "",
+                        dest = "pingopts_v4",
+                        help = "like -o but applied to IPv4 targets only, "
+                               "e.g. --ping-options-v4=\"-s 1000\"")
+    parser.add_argument("--ping-options-v6", default = "",
+                        dest = "pingopts_v6",
+                        help = "like -o but applied to IPv6 targets only, "
+                               "e.g. --ping-options-v6=\"-s 1000\"")
     parser.add_argument("configfile", type = argparse.FileType("r"),
                         help = "config file for deadman")
 
@@ -966,6 +997,9 @@ if __name__ == '__main__':
     RTT_SCALE = args.scale
     BLINK_ARROW = args.blink_arrow
     LOGDIR = args.logdir
+    PING_OPTIONS = args.pingopts.split()
+    PING_OPTIONS_V4 = args.pingopts_v4.split()
+    PING_OPTIONS_V6 = args.pingopts_v6.split()
 
     try:
         curses.wrapper(main, args.configfile, args.async_mode)
