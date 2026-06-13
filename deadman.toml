@@ -1,94 +1,44 @@
 # deadman.toml
-# マークダウン拡張機能対応版
-#
-# label には以下のマークダウン要素が使用可能です：
-#   - 見出し: #, ##, ###, #### (重要度レベル)
-#   - 強調: **太字**, *イタリック*, ~~取り消し線~~
-#   - リスト: - または * で始まる行
-#   - コード: `inline code` または ```code block```
-#   - リンク: [テキスト](URL)
-#   - 引用: > で始まる行
-#   - 表: | col1 | col2 | 形式
-#
-# target 定義もマークダウンテーブル形式で記述可能：
-#   targets_md = """
-#   | name | address | via | relay | tcp_port |
-#   |------|---------|-----|-------|----------|
-#   | host1| 1.2.3.4 | tcp | -     | 80       |
-#   | host2| 5.6.7.8 | icmp| -     | -        |
-#   """
 
-# =============================================================================
-# # 🌐 **Public DNS Servers** - 最重要インフラ
-# =============================================================================
-# > 注意: これらのサーバーは障害時に最初に確認すべき重要です
-# 
-# | サービス名 | IP アドレス | 説明 |
-# |-----------|-------------|------|
-# | Google DNS | 8.8.8.8 | Google 提供のパブリック DNS |
-# | Quad9 | 9.9.9.9 | セキュリティ重視の DNS |
+# label の # の数が重要度・表示サイズに対応
+#   #   → 最重要（障害時に最初に目に入るべきもの）
+#   ##  → 重要
+#   ### → 参考・補助的なターゲット
 
 [[group]]
-label = "# 🌐 **Public DNS Servers**"
-description = "最重要インフラ - 障害時に最初に確認"
+label = "# Public DNS"
 
   [[group.target]]
   name    = "googleDNS"
   address = "8.8.8.8"
-  comment = "`Google` 提供の _パブリック_ DNS"
 
   [[group.target]]
   name    = "quad9"
   address = "9.9.9.9"
-  comment = "セキュリティ重視の [Quad9](https://quad9.net)"
 
-
-# =============================================================================
-# ## 📡 Root Name Servers - 重要
-# =============================================================================
-# ルートネームサーバーの監視グループ
-#
-# - IPv4 と IPv6 の両方を監視
-# - 複数のリージョンに分散
 
 [[group]]
-label = "## 📡 **Root Name Servers**"
-description = "ルートネームサーバー - 重要"
+label = "## Root Name Servers"
 
   [[group.target]]
   name    = "mroot"
   address = "202.12.27.33"
-  comment = "M root server (IPv4)"
 
   [[group.target]]
   name    = "kame"
   address = "210.155.141.200"
-  comment = "KAME project (IPv4)"
 
   [[group.target]]
   name    = "mroot6"
   address = "2001:dc3::35"
-  comment = "M root server (IPv6) - `::35`"
 
   [[group.target]]
   name    = "kame6"
   address = "2001:2f0:0:8800::1:1"
-  comment = "KAME project (IPv6)"
 
-
-# =============================================================================
-# ### 🔐 SSH Relay Servers - 参考
-# =============================================================================
-# SSH を経由した監視ターゲット
-#
-# ```bash
-# # SSH 接続の確認方法
-# ssh -i /path/to/key user@relay ping target
-# ```
 
 [[group]]
-label = "### 🔐 SSH Relay"
-description = "SSH 経由監視 - 参考"
+label = "### SSH Relay"
 
   [[group.target]]
   name    = "google-via-ssh"
@@ -98,20 +48,10 @@ description = "SSH 経由監視 - 参考"
   os      = "Linux"
   user    = "user"
   key     = "/path/to/id_rsa"
-  comment = "**重要**: 本番環境へのゲートウェイ"
 
-
-# =============================================================================
-# ### 📊 SNMP Monitoring - 参考
-# =============================================================================
-# SNMP プロトコルを使用した監視
-#
-# > 注意：`snmpping` コマンドがインストールされている必要があります
-# > 参考：[Net-SNMPPing Documentation](http://www.net-snmp.org/)
 
 [[group]]
-label = "### 📊 SNMP Monitoring"
-description = "SNMP 経由監視 - 参考"
+label = "### SNMP"
 
   [[group.target]]
   name      = "googleDNS-via-snmp"
@@ -119,90 +59,29 @@ description = "SNMP 経由監視 - 参考"
   via       = "snmp"
   relay     = "X.X.X.X"
   community = "public"
-  comment   = "コミュニティ文字列：`public` (本番では変更推奨)"
 
-
-# =============================================================================
-# ### 🖧 Network Namespaces & VRF - 参考
-# =============================================================================
-# ネットワーク名前空間と VRF の監視
-#
-# | 種類 | コマンド例 | 用途 |
-# |------|-----------|------|
-# | netns | `ip netns exec <ns> ping` | コンテナ/仮想環境 |
-# | vrf   | `ip vrf exec <vrf> ping`  | VRF-Lite/VPN |
 
 [[group]]
-label = "### 🖧 **Netns / VRF**"
-description = "ネットワーク分離環境 - 参考"
+label = "### Netns / VRF"
 
   [[group.target]]
-  name    = "googleDNS-via-netns"
+  name  = "googleDNS-via-netns"
   address = "8.8.8.8"
-  via     = "netns"
-  relay   = "netns1"
-  comment = "名前空間：`netns1`"
+  via   = "netns"
+  relay = "netns1"
 
   [[group.target]]
-  name    = "googleDNS-via-vrf"
+  name  = "googleDNS-via-vrf"
   address = "8.8.8.8"
-  via     = "vrf"
-  relay   = "vrf1"
-  comment = "VRF: `vrf1` (管理 VRF)"
+  via   = "vrf"
+  relay = "vrf1"
 
-
-# =============================================================================
-# ### 🌐 TCP Port Monitoring - 参考
-# =============================================================================
-# TCP ポート到達性監視
-#
-# - **Web サーバー**: port 80, 443
-# - **データベース**: port 3306, 5432
-# - ~~レガシーサービス~~: 廃止予定
 
 [[group]]
-label = "### 🌐 TCP Port Monitoring"
-description = "TCP ポート監視 - 参考"
+label = "### TCP Ping"
 
   [[group.target]]
   name     = "wide-tcp80"
   address  = "203.178.136.59"
   via      = "tcp"
   tcp_port = 80
-  comment  = "HTTP port - [WIDE Project](https://www.wide.ad.jp/)"
-
-  [[group.target]]
-  name     = "google-https"
-  address  = "142.250.185.14"
-  via      = "tcp"
-  tcp_port = 443
-  comment  = "HTTPS port - **常時監視対象**"
-
-  [[group.target]]
-  name     = "mysql-check"
-  address  = "192.168.1.100"
-  via      = "tcp"
-  tcp_port = 3306
-  comment  = "MySQL データベース - *重要*"
-
-
-# =============================================================================
-# #### 🔍 詳細監視ターゲット - 補助的
-# =============================================================================
-# 補助的な監視ターゲット（### より低い優先度）
-
-[[group]]
-label = "#### 🔍 詳細監視ターゲット"
-description = "補助的監視 - 低優先度"
-
-  [[group.target]]
-  name    = "internal-dns"
-  address = "10.0.0.53"
-  comment = "社内 DNS - 夜間のみ監視"
-
-  [[group.target]]
-  name    = "backup-server"
-  address = "10.0.0.100"
-  via     = "tcp"
-  tcp_port = 22
-  comment  = "バックアップサーバー SSH - ~~週末のみ~~ 毎日監視に変更

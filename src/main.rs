@@ -44,8 +44,6 @@ struct Config {
 struct GroupCfg {
     label: String,
     #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
     target: Vec<TargetCfg>,
 }
 
@@ -60,8 +58,6 @@ struct TargetCfg {
     key: Option<String>,
     community: Option<String>,
     tcp_port: Option<u16>,
-    #[serde(default)]
-    comment: Option<String>,
 }
 
 // ---------------- ping 方式 ----------------
@@ -166,7 +162,6 @@ struct Target {
     rtt: f64,
     tot: f64,
     history: VecDeque<Outcome>, // 先頭が最新
-    comment: Option<String>, // マークダウン対応のコメント
 }
 
 impl Target {
@@ -217,121 +212,10 @@ impl Target {
     }
 }
 
-// ---------------- Markdown パース（簡易）----------------
-/// Markdown の強調記法をパースして Span に変換
-/// 対応：`code`, **bold**, *italic*, ~~strikethrough~~, [link](url)
-fn parse_markdown_spans(text: &str) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    let mut remaining = text;
-    
-    while !remaining.is_empty() {
-        // 最長のマッチを探すために、全てのパターンをチェック
-        let mut best_match: Option<(usize, usize, Span<'static>)> = None;
-        
-        // `inline code` (backticks)
-        if let Some(start) = remaining.find('`') {
-            if let Some(end) = remaining[start + 1..].find('`') {
-                let end = start + end + 2;
-                let code = &remaining[start + 1..end - 1];
-                let span = Span::styled(
-                    format!("`{}`", code),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
-                );
-                if best_match.is_none() || start < best_match.unwrap().0 {
-                    best_match = Some((start, end, span));
-                }
-            }
-        }
-        
-        // **[bold]**
-        if let Some(start) = remaining.find("**") {
-            if let Some(end) = remaining[start + 2..].find("**") {
-                let end = start + end + 4;
-                let bold = &remaining[start + 2..end - 2];
-                let span = Span::styled(
-                    bold.to_string(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                );
-                if best_match.is_none() || start < best_match.unwrap().0 {
-                    best_match = Some((start, end, span));
-                }
-            }
-        }
-        
-        // *[italic]* (ただし ** との区別に注意)
-        if let Some(start) = remaining.find('*') {
-            // ** ではないことを確認
-            if !remaining[start..].starts_with("**") {
-                if let Some(end) = remaining[start + 1..].find('*') {
-                    let end = start + end + 2;
-                    let italic = &remaining[start + 1..end - 1];
-                    let span = Span::styled(
-                        italic.to_string(),
-                        Style::default().add_modifier(Modifier::ITALIC),
-                    );
-                    if best_match.is_none() || start < best_match.unwrap().0 {
-                        best_match = Some((start, end, span));
-                    }
-                }
-            }
-        }
-        
-        // ~~strikethrough~~
-        if let Some(start) = remaining.find("~~") {
-            if let Some(end) = remaining[start + 2..].find("~~") {
-                let end = start + end + 4;
-                let strike = &remaining[start + 2..end - 2];
-                let span = Span::styled(
-                    strike.to_string(),
-                    Style::default().add_modifier(Modifier::CROSSED_OUT),
-                );
-                if best_match.is_none() || start < best_match.unwrap().0 {
-                    best_match = Some((start, end, span));
-                }
-            }
-        }
-        
-        // [text](url)
-        if let Some(link_start) = remaining.find('[') {
-            if let Some(mid) = remaining[link_start..].find("](") {
-                let url_start = link_start + mid + 2;
-                if let Some(url_end) = remaining[url_start..].find(')') {
-                    let end = url_start + url_end + 1;
-                    let text_part = &remaining[link_start + 1..link_start + mid];
-                    let url = &remaining[url_start..url_start + url_end];
-                    let span = Span::styled(
-                        format!("[{}]({})", text_part, url),
-                        Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
-                    );
-                    if best_match.is_none() || link_start < best_match.unwrap().0 {
-                        best_match = Some((link_start, end, span));
-                    }
-                }
-            }
-        }
-        
-        if let Some((start, end, span)) = best_match {
-            // マッチ前の通常テキストを追加
-            if start > 0 {
-                spans.push(Span::raw(remaining[..start].to_string()));
-            }
-            spans.push(span);
-            remaining = &remaining[end..];
-        } else {
-            // マッチがなければ残りを全て追加
-            spans.push(Span::raw(remaining.to_string()));
-            break;
-        }
-    }
-    
-    spans
-}
-
 // ---------------- 表示用グループ ----------------
 struct GroupView {
     label: String,
     level: usize,
-    description: Option<String>,
     members: Vec<usize>, // targets への添字
 }
 
@@ -608,7 +492,6 @@ fn load(path: &str) -> Result<(Vec<Target>, Vec<GroupView>), String> {
     for g in &cfg.group {
         let level = heading_level(&g.label);
         let label = clean_label(&g.label);
-        let description = g.description.clone();
         let mut members = Vec::new();
         for t in &g.target {
             let addr: IpAddr = t
@@ -627,13 +510,11 @@ fn load(path: &str) -> Result<(Vec<Target>, Vec<GroupView>), String> {
                 rtt: 0.0,
                 tot: 0.0,
                 history: VecDeque::new(),
-                comment: t.comment.clone(),
             });
         }
         groups.push(GroupView {
             label,
             level,
-            description,
             members,
         });
     }
@@ -702,14 +583,6 @@ fn target_row(t: &Target, scale: f64, history_width: usize) -> Row<'static> {
         "-".to_string()
     };
 
-    // コメント（マークダウンパース対応）
-    let comment_cell = if let Some(ref c) = t.comment {
-        let spans = parse_markdown_spans(c);
-        Cell::from(Line::from(spans))
-    } else {
-        Cell::from("")
-    };
-
     Row::new(vec![
         Cell::from(t.name.clone()).style(name_style),
         Cell::from(t.addr.to_string()),
@@ -718,7 +591,6 @@ fn target_row(t: &Target, scale: f64, history_width: usize) -> Row<'static> {
         Cell::from(avg_cell),
         Cell::from(t.snt.to_string()),
         Cell::from(spark_line(&t.history, scale, history_width)),
-        comment_cell,
     ])
 }
 
@@ -758,11 +630,11 @@ fn run_ui(
                 chunks[0],
             );
 
-            let fixed: usize = 22 + 26 + 6 + 7 + 7 + 7 + 6 + 30; // コメント列分を追加
+            let fixed: usize = 22 + 26 + 6 + 7 + 7 + 7 + 6;
             let history_width = (chunks[1].width as usize).saturating_sub(fixed).max(10);
 
             let header = Row::new(vec![
-                "HOSTNAME", "ADDRESS", "LOSS", "RTT", "AVG", "SNT", "HISTORY", "COMMENT",
+                "HOSTNAME", "ADDRESS", "LOSS", "RTT", "AVG", "SNT", "HISTORY",
             ])
             .style(Style::default().add_modifier(Modifier::BOLD));
 
@@ -771,18 +643,9 @@ fn run_ui(
                 if gi > 0 {
                     rows.push(Row::new(vec![Cell::from("")])); // 区切りの空行
                 }
-                // グループラベル（マークダウンパース対応）
-                let label_spans = parse_markdown_spans(&g.label);
                 rows.push(Row::new(vec![
-                    Cell::from(Line::from(label_spans)).style(label_style(g.level))
+                    Cell::from(g.label.clone()).style(label_style(g.level))
                 ]));
-                // グループの説明（description があれば表示）
-                if let Some(ref desc) = g.description {
-                    let desc_spans = parse_markdown_spans(desc);
-                    rows.push(Row::new(vec![
-                        Cell::from(Line::from(desc_spans)).style(Style::default().add_modifier(Modifier::DIM))
-                    ]));
-                }
                 for &mi in &g.members {
                     rows.push(target_row(&targets[mi], scale, history_width));
                 }
@@ -796,7 +659,6 @@ fn run_ui(
                 Constraint::Length(7),
                 Constraint::Length(7),
                 Constraint::Min(10),
-                Constraint::Length(30), // コメント列
             ];
             let table = Table::new(rows, widths).header(header).column_spacing(1);
             frame.render_widget(table, chunks[1]);

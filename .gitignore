@@ -1,43 +1,8 @@
-```toml
-# Rust-specific ignores
-target/
-Cargo.lock
-
-# Dependencies
-vendor/
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS generated files
+myconf
+test.conf
 .DS_Store
-Thumbs.db
 
-# Coverage reports
-coverage/
-htmlcov/
-.coverage
 
-# Build artifacts
-dist/
-build/
-*.o
-*.obj
-*.a
-*.so
-*.dll
-*.exe
-*.out
-```
+# Added by cargo
+
+/target
