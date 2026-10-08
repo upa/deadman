@@ -93,7 +93,7 @@ class PingResult:
 class PingTarget:
 
     def __init__(self, name, address, osname, relay = None, source = None,
-                 tcp = None):
+                 tcp = None, opts = None):
 
         self.name = name
         self.addr = address
@@ -108,8 +108,9 @@ class PingTarget:
         self.snt = 0 # number of sent ping
         self.ttl = 0 # last ttl
         self.result = []
+        self.opts = opts or {}
         self.ping = Ping(self.addr, osname, relay = relay, source = source,
-                         tcp = tcp)
+                         tcp = tcp, opts = self.opts)
 
         return
 
@@ -119,6 +120,8 @@ class PingTarget:
             s.append(str(self.relay))
         if self.source:
             s.append(self.source)
+        if self.opts:
+            s.append(str(sorted(self.opts.items())))
         return ':'.join(s)
 
     def __eq__(self, other):
@@ -199,7 +202,7 @@ SEPARATOR = Separator()
 class Ping:
 
     def __init__(self, addr, osname, timeout = 1.0,
-                 relay = None, source = None, tcp = None):
+                 relay = None, source = None, tcp = None, opts = None):
 
         self.addr = addr
         self.osname = osname
@@ -220,6 +223,9 @@ class Ping:
             raise RuntimeError("invalid IP address '%s'" % self.addr)
 
         self.pingcmd = pingcmd(osname, self.ipversion)
+        if self.pingcmd is not None:
+            self.pingcmd = self.pingcmd + pingopts(osname, self.ipversion,
+                                                   opts or {})
 
         return
 
@@ -723,14 +729,15 @@ class Deadman:
         newtargets = []
         self.targetlist = self.gettargetlist(self.configfile)
 
-        for name, addr, relay, source, tcp in self.targetlist:
+        for name, addr, relay, source, tcp, opts in self.targetlist:
             osname = relay.get('os', OSNAME)
 
             if re.fullmatch(r'-+', name):
                 pt = SEPARATOR
             else:
                 pt = PingTarget(name, addr, osname,
-                                relay = relay, source = source, tcp = tcp)
+                                relay = relay, source = source, tcp = tcp,
+                                opts = opts)
             idx = -1
             if pt in self.targets:
                 idx = self.targets.index(pt)
@@ -872,6 +879,7 @@ class Deadman:
             addr = ss.pop(0) if ss else None
             source = None
             tcp = None
+            opts = {}
             relay = {}
             for s in ss:
                 key, value = s.split("=")
@@ -883,8 +891,10 @@ class Deadman:
                     source = value
                 elif key == "tcp":
                     tcp = value
+                elif key in ("size", "df"):
+                    opts[key] = value
 
-            targetlist.append([name, addr, relay, source, tcp])
+            targetlist.append([name, addr, relay, source, tcp, opts])
 
         configfile.close()
 
@@ -928,6 +938,33 @@ def pingcmd(osname, ipv):
         return ["ping", "count", "1"]
 
     return None
+
+
+
+def pingopts(osname, ipv, opts):
+
+    """
+    Options for size= (ICMP payload bytes) and df= (do not fragment).
+    JUNOS has no do-not-fragment for IPv6; an IPv6 router never fragments.
+    """
+    size = opts.get("size")
+    df = str(opts.get("df", "")).lower() in ("1", "yes", "true", "on")
+    if size is not None and not size.isdigit():
+        raise RuntimeError("size must be a number: '%s'" % size)
+
+    o = []
+    if osname == "JUNOS":
+        if size: o += ["size", size]
+        if df and ipv == 4: o += ["do-not-fragment"]
+        return o
+
+    if size: o += ["-s", size]
+    if df:
+        if osname == "Linux":
+            o += ["-M", "do"]
+        elif osname in ("Darwin", "FreeBSD"):
+            o += ["-D"]
+    return o
 
 
 
