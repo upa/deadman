@@ -67,6 +67,7 @@ SEC_TENS_COLOR = 5
 
 RTT_SCALE = 10
 TIMELINE = False
+ROUND_TIME = None  # wall-clock time (float) shared by all targets in one async round
 
 SSH_CONNECT_TIMEOUT = 3
 
@@ -132,7 +133,7 @@ class PingTarget:
         asyncio.run(self.async_send())
 
     async def async_send(self):
-        self.localtime.insert(0, time.localtime())
+        self.localtime.insert(0, ROUND_TIME if ROUND_TIME is not None else time.time())
         res = await self.ping.async_send()
         self.snt += 1
         self.consume_ping_result(res)
@@ -658,10 +659,14 @@ class CursesCtrl():
                 color = curses.color_pair(UP_COLOR)
             else:
                 color = curses.color_pair(DOWN_COLOR)
-            if TIMELINE:
-                if target.localtime[n].tm_sec == 0:
+            if TIMELINE and n + 1 < len(target.localtime):
+                # Mark the column whose round crossed a minute / 10-second
+                # boundary since the previous round. Matching tm_sec exactly
+                # leaves holes whenever a round takes longer than a second.
+                newer, older = target.localtime[n], target.localtime[n + 1]
+                if int(newer // 60) != int(older // 60):
                     color = curses.color_pair(SEC_ZERO_COLOR)
-                elif target.localtime[n].tm_sec % 10 == 0:
+                elif int(newer // 10) != int(older // 10):
                     color = curses.color_pair(SEC_TENS_COLOR)
 
             y, x = self.stdscr.getmaxyx()
@@ -787,6 +792,8 @@ class Deadman:
             self.curs.erase_pingtarget(idx + 1)
 
     async def async_ping_targets(self):
+        global ROUND_TIME
+        ROUND_TIME = time.time()
         await asyncio.gather(*[x.async_send() for x in self.targets if x != SEPARATOR])
 
     def async_main(self):
