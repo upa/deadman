@@ -208,6 +208,13 @@ class Ping:
         self.timeout = timeout
         self.tcp = tcp
 
+        # A relayed ping pays for an SSH login (and, on JUNOS, a CLI start)
+        # every time, which often takes longer than the default 1 second.
+        if relay and "timeout" in relay:
+            self.timeout = float(relay["timeout"])
+        elif relay and relay.get("os") == "JUNOS":
+            self.timeout = 3.0
+
         self.ipversion = whichipversion(self.addr)
         if not self.ipversion:
             raise RuntimeError("invalid IP address '%s'" % self.addr)
@@ -870,7 +877,7 @@ class Deadman:
                 key, value = s.split("=")
                 if key in ("os", "relay", "via", "community",
                            "netns", "user", "key", "method",
-                           "username", "password", "verify"):
+                           "username", "password", "verify", "timeout"):
                     relay[key] = value
                 elif key == "source":
                     source = value
