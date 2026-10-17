@@ -917,6 +917,8 @@ def pingcmd(osname, ipv):
         if ipv == 6:
             if which('ping6'): return ["ping6", "-c", "1"]
             else: return ["ping", "-c", "1"]
+    elif osname == "JUNOS":
+        return ["ping", "count", "1"]
 
     return None
 
